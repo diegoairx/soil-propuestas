@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<title>Seguimiento Propuestas · SOIL Limitada</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Fuentes -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Supabase JS Client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- React + ReactDOM + Recharts + Babel -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  body { margin:0; background:#ffffff; font-family:'Inter',system-ui,sans-serif; }
+  .display-font { font-family:'Barlow Condensed','Impact',sans-serif; letter-spacing:-0.01em; }
+  .grid-bg { background-image: radial-gradient(rgba(204,20,20,0.10) 1px, transparent 1px); background-size: 24px 24px; }
+  .scrollbar-thin::-webkit-scrollbar { height:6px; width:6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background:#CC1414; border-radius:3px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background:#f1f5f9; }
+  /* Loader */
+  .loader-bg { position:fixed; inset:0; background:#ffffff; display:flex; align-items:center; justify-content:center; z-index:100; transition:opacity .4s; }
+  .loader-bg.hidden { opacity:0; pointer-events:none; }
+  .loader-spin { width:48px; height:48px; border:3px solid #e2e8f0; border-top-color:#CC1414; border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  @media print {
+    body { background: white !important; }
+    .no-print { display: none !important; }
+    [data-printable] { background: white !important; color: black !important; }
+    [data-printable] * { color: black !important; border-color: #ccc !important; }
+    .print-page { page-break-after: always; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loader" class="loader-bg">
+  <div style="text-align:center;">
+    <div class="loader-spin" style="margin:0 auto 16px;"></div>
+    <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
+    <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
+  </div>
+</div>
+
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react" data-type="module">
+const { useState, useEffect, useMemo, useRef, Fragment } = React;
+const {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, LineChart, Line, Legend
+} = Recharts;
+
+// ============================================================================
+// SUPABASE CONFIG — REEMPLAZAR CON TUS CREDENCIALES (paso 1.3 de la guía)
+// ============================================================================
+const SUPABASE_URL      = "https://dorshinrvqppaxvzskor.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvcnNoaW5ydnFwcGF4dnpza29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MDMxMzgsImV4cCI6MjA5MzQ3OTEzOH0.zXYUEdUwfovCOXnB0SGFYEk-xqOCZqPKwZwGN0t0L9w";
+
+// Cliente Supabase global (creado solo si las credenciales fueron reemplazadas)
+const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("PEGA_AQUÍ") && !SUPABASE_ANON_KEY.includes("PEGA_AQUÍ");
+const supabase = SUPABASE_CONFIGURED
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    })
+  : null;
+
+// ============================================================================
+// ICONOS (SVG inline estilo Lucide)
+// ============================================================================
+const Icon = ({ name, className = "", size = 16 }) => {
+  const paths = {
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    printer: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>',
+    trendup: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    trenddown: '<polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>',
+    award: '<path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"/><circle cx="12" cy="8" r="6"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    dollar: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    checkcircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    xcircle: '<circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    file: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>',
+    layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+    x: '<line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/>',
+    plus: '<line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/>',
+    chart: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    pie: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+    sort: '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>',
+    chevron: '<polyline points="6 9 12 15 18 9"/>',
+    zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+    spreadsheet: '<rect width="18" height="18" x="3" y="3" rx="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/>',
+    pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    fileText: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>',
+    refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+    toggle: '<rect width="20" height="12" x="2" y="6" rx="6" ry="6"/><circle cx="16" cy="12" r="2"/>'
+  };
+  // Tamaños explícitos vía atributos width/height para que funcionen aunque Tailwind no cargue
+  const sizeMap = { "w-3 h-3": 12, "w-3.5 h-3.5": 14, "w-4 h-4": 16, "w-5 h-5": 20, "w-6 h-6": 24 };
+  const finalSize = sizeMap[className] || size;
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={finalSize} height={finalSize} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+         className={className} style={{ flexShrink: 0, display: "inline-block", verticalAlign: "middle" }}
+         dangerouslySetInnerHTML={{ __html: paths[name] || '' }} />
+  );
+};
+
+// ============================================================================
+// DATA SEMILLA
+// ============================================================================
+const SEED = [
+  {"proyecto":"Edificio San Martin 262","cliente":"Constructora e inmobiliaria Esperanza S.A","contacto":"Julio Rivero","email":"riverojul@gmail.com","telefono":"+56993193352","monto":6075.95,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles, Perforación de anclajes, Movimiento de tierra","ultimo_contacto":"06/01/2025"},
+  {"proyecto":"Puente Industrial Hualpen - MOP","cliente":"FCC Construcciones agencia Chile S.A","contacto":"Roberto Suarez","email":"roberto.suarez@fccco.com","telefono":"","monto":632.91,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles","ultimo_contacto":"15/11/2023"},
+  {"proyecto":"MBA Edificio Green Los Carrera 1360","cliente":"Constructora Nueva Capreva S.A","contacto":"Leonardo Vergara","email":"lvergara@nuevacapreva.cl","telefono":"+56958527375","monto":6329.11,"status":"Proyecto rechazado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"13/11/2023"},
+  {"proyecto":"Cámaras de gas avenida Collao","cliente":"Gasport S.A","contacto":"Lorena Rojas","email":"contacto@gasport.cl","telefono":"","monto":1544.3,"status":"Proyecto adjudicado","servicios":"Entibación tipo MBA","ultimo_contacto":"16/11/2023"},
+  {"proyecto":"Edificio Bandera 1060","cliente":"Constructora Avatar Limitada","contacto":"Vanessa Varela","email":"vvarela@avatarltda.cl","telefono":"+56966172267","monto":4911.39,"status":"Proyecto adjudicado","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"15/11/2023"},
+  {"proyecto":"MBA Edificio Lautaro 659","cliente":"Constructora Ralun Limitada","contacto":"Santiago Gonzalez","email":"stgonzam@hotmail.com","telefono":"+56985955129","monto":9620.25,"status":"Proyecto rechazado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"14/11/2023"},
+  {"proyecto":"Condominio Doña Josefina","cliente":"AITUE S.A","contacto":"Gonzalo Riquelme","email":"griquelme@aitue.cl","telefono":"+56982418731","monto":1544.3,"status":"Proyecto rechazado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"15/11/2023"},
+  {"proyecto":"Altos del valle etapa IV","cliente":"AITUE S.A","contacto":"Pablo Vidal","email":"pvidal@aitue.cl","telefono":"+56978096020","monto":1518.99,"status":"Proyecto adjudicado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"09/11/2023"},
+  {"proyecto":"Edificio Siete Lagunas","cliente":"Constructora K y P Limitada","contacto":"Felipe Rivera","email":"frivera@krono.cl","telefono":"","monto":6329.11,"status":"Negociación proyecto","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"08/11/2023"},
+  {"proyecto":"MBA Edificio Reddlich 565","cliente":"Inspección Sur Limitada","contacto":"Gonzalo Acuña","email":"gacuna@inspeccionsur.cl","telefono":"+56988374418","monto":5063.29,"status":"Proyecto rechazado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"25/10/2023"},
+  {"proyecto":"Edificio Castellon 1265","cliente":"EBCO S.A","contacto":"Nicole Perkic","email":"nicole.perkic@ebco.cl","telefono":"+56964690073","monto":6329.11,"status":"Proyecto adjudicado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"07/11/2023"},
+  {"proyecto":"Condominio Parque Bellavista - Penco","cliente":"Constructora Carran S.A","contacto":"Ivan Maragaño","email":"imaragano@py.cl","telefono":"+56981375368","monto":1240.51,"status":"Proyecto adjudicado","servicios":"Arriendo de camión tolva, Arriendo de maquinaria, Flete con camión tolva","ultimo_contacto":"08/11/2023"},
+  {"proyecto":"Edificio Paicavi 420","cliente":"Constructora e inmobiliaria Esperanza S.A","contacto":"Julio Rivero","email":"riverojul@gmail.com","telefono":"+56993193352","monto":506.33,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles, Perforación de anclajes, Movimiento de tierra","ultimo_contacto":"02/11/2023"},
+  {"proyecto":"Edificio Peumayen","cliente":"Constructora PDP Limitada","contacto":"Luis Moreno","email":"lmoreno@pdp.cl","telefono":"","monto":7265.82,"status":"Proyecto rechazado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"30/11/2023"},
+  {"proyecto":"Edificio Maipu 1163","cliente":"Constructora Novatec S.A","contacto":"Cristian Zuñiga","email":"czunigag@novatec.cl","telefono":"+56977080214","monto":9772.15,"status":"Proyecto adjudicado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"14/12/2023"},
+  {"proyecto":"Centro Simulación UDEC","cliente":"EBCO S.A","contacto":"Gonzalo Gastellu","email":"gonzalo.gastellu@ebco.cl","telefono":"+56944779509","monto":8151.9,"status":"Proyecto adjudicado","servicios":"Agotamiento, Entibación tipo MBA, Entibación tipo MSN, Movimiento de tierra","ultimo_contacto":"24/11/2023"},
+  {"proyecto":"Jardines del Pinar","cliente":"Constructora Guindo Santo S.A","contacto":"Sergio Dominguez","email":"sdominguez@mnk.cl","telefono":"+56950003328","monto":7696.2,"status":"Proyecto rechazado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"12/12/2023"},
+  {"proyecto":"Edificio Avenida Costanera 916","cliente":"Echeverria Izquierdo S.A","contacto":"Tamara Rojas","email":"trojas@ei.cl","telefono":"+56968421339","monto":10810.13,"status":"Cotización enviada","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"19/12/2023"},
+  {"proyecto":"MBA Edificio Tempo","cliente":"Gestion Inmobiliaria Prima","contacto":"Hernan Cabrera","email":"hcabrera@gestionprima.cl","telefono":"","monto":3417.72,"status":"Proyecto rechazado","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"11/12/2023"},
+  {"proyecto":"Edificio Campus Paicavi - USS","cliente":"Ingevec S.A","contacto":"Monica Aldea","email":"maldeaing1@gmail.com","telefono":"+56985321880","monto":10452,"status":"Proyecto rechazado","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"23/07/2024"},
+  {"proyecto":"Condominio Parque Huertos","cliente":"Constructora PDP Limitada","contacto":"Ignacia Gallegos","email":"pdppropuesta@gmail.com","telefono":"+56934057472","monto":10810.13,"status":"Proyecto rechazado","servicios":"Entibación tipo MBA, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"19/07/2024"},
+  {"proyecto":"Edificio Insigne","cliente":"EBCO S.A","contacto":"Nicole Perkic","email":"nicole.perkic@ebco.cl","telefono":"+56942902979","monto":15139.24,"status":"Proyecto adjudicado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"19/07/2024"},
+  {"proyecto":"Edificio Freire II","cliente":"AITUE S.A","contacto":"Felix Vasquez","email":"fvasquez@aitue.cl","telefono":"+56963939094","monto":16405.06,"status":"Negociación proyecto","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"19/07/2024"},
+  {"proyecto":"MBA Edificio Castellon 227","cliente":"AITUE S.A","contacto":"Felix Vasquez","email":"fvasquez@aitue.cl","telefono":"+56963939094","monto":10354.43,"status":"Proyecto rechazado","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"19/07/2024"},
+  {"proyecto":"Condominio Peumayen","cliente":"Terracon S.A","contacto":"Claudio Gonzalez","email":"cgonzalez@terracon.cl","telefono":"+56982890441","monto":18810.13,"status":"Proyecto rechazado","servicios":"Agotamiento, Movimiento de tierra, Perforación de anclajes","ultimo_contacto":"27/06/2024"},
+  {"proyecto":"Edificio Tres Pascualas","cliente":"EBCO S.A","contacto":"Gonzalo Gastellu","email":"gonzalo.gastellu@ebco.cl","telefono":"+56944779509","monto":8632.91,"status":"Proyecto adjudicado","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"10/05/2024"},
+  {"proyecto":"Museo regional de la memoria","cliente":"Empresa Constructora Misael Flores","contacto":"Christofer Muñoz Gonzalez","email":"cmunoz@misaelflores.cl","telefono":"","monto":13873.42,"status":"Cotización enviada","servicios":"Entibación tipo MBA","ultimo_contacto":"10/05/2024"},
+  {"proyecto":"MT Edificio Central Sur","cliente":"EBCO S.A","contacto":"Tomas Garrido","email":"tomas.garrido@ebco.cl","telefono":"+56967436316","monto":7924.05,"status":"Proyecto rechazado","servicios":"Entibación tipo MBA, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"31/07/2024"},
+  {"proyecto":"Condominio Cumbres de Laja","cliente":"Constructora Avatar Limitada","contacto":"Vanessa Varela","email":"vvarela@avatarltda.cl","telefono":"","monto":42825,"status":"Proyecto rechazado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"18/07/2024"},
+  {"proyecto":"MT Esmax Cabrero","cliente":"SH Desarrollo Inmobiliario","contacto":"Maribel Diaz","email":"mdiaz@shdesarrollo.cl","telefono":"+56999914191","monto":7848.1,"status":"Proyecto rechazado","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"02/07/2024"},
+  {"proyecto":"Edificio Las Margaritas 1660","cliente":"AITUE S.A","contacto":"Felix Vasquez","email":"fvasquez@aitue.cl","telefono":"+56963939094","monto":5974.68,"status":"Proyecto rechazado","servicios":"Demolición mecánica, Columnas de grava","ultimo_contacto":"26/06/2024"},
+  {"proyecto":"MT Edificio Planetario UBB","cliente":"Constructora Nahen","contacto":"Gastón Galdames","email":"ccivilggr@gmail.com","telefono":"+56968707152","monto":10405.06,"status":"Proyecto rechazado","servicios":"Entibación tipo MBA","ultimo_contacto":"22/07/2024"},
+  {"proyecto":"Edificio Paicavi 436","cliente":"Constructora e inmobiliaria Esperanza S.A","contacto":"Julio Rivero","email":"riverojul@gmail.com","telefono":"+56993193352","monto":1012.66,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles, Perforación de anclajes, Movimiento de tierra","ultimo_contacto":"02/11/2023"},
+  {"proyecto":"Edificio Campus Paicavi - USS (FCI)","cliente":"Ferrara Ingenieria y Construccion Limitada","contacto":"Claudia Ramos","email":"claudia.ramos@ferrara.cl","telefono":"+56984393501","monto":2353.77,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles, Movimiento de tierra","ultimo_contacto":"06/01/2025"},
+  {"proyecto":"Condominio Los Aromos","cliente":"Constructora e inmobiliaria Esperanza S.A","contacto":"Julio Rivero","email":"riverojul@gmail.com","telefono":"+56993193352","monto":12019,"status":"Proyecto adjudicado","servicios":"Hincado de perfiles, Perforación de anclajes, Movimiento de tierra","ultimo_contacto":""},
+  {"proyecto":"DOP46 La Barra","cliente":"Constructora Harcha Limitada","contacto":"Rodrigo Salgado","email":"rsalgado@harchaobras.cl","telefono":"+56961574864","monto":1470,"status":"Proyecto adjudicado","servicios":"Arriendo de maquinaria","ultimo_contacto":"07/01/2025"},
+  {"proyecto":"Edificio Vista Mar","cliente":"IVAGO SpA","contacto":"Emilio Uriarte","email":"emilio.uriarte@ivago.cl","telefono":"","monto":2778,"status":"Cotización enviada","servicios":"Entibación tipo MBA","ultimo_contacto":"27/04/2026"},
+  {"proyecto":"Pedro del Rio Zañartu","cliente":"Constructora FBA SpA","contacto":"Felipe Seguel","email":"feli.seguelo@gmail.com","telefono":"","monto":12388,"status":"Cotización enviada","servicios":"Entibación tipo MBA, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"24/04/2026"},
+  {"proyecto":"Reposicion Complejo policial PDI","cliente":"Urales Construcciones","contacto":"Monica Aldea","email":"monica.aldea@urales.cl","telefono":"","monto":7469,"status":"Cotización enviada","servicios":"Perforación de anclajes, Micropilotes, Movimiento de tierra","ultimo_contacto":"23/04/2026"},
+  {"proyecto":"Demolición sitio AIEP San Martin","cliente":"AIEP","contacto":"Claudio Cid","email":"claudio.cidb@gmail.com","telefono":"","monto":1016,"status":"Cotización enviada","servicios":"Demolición mecánica, Movimiento de tierra","ultimo_contacto":"20/04/2026"},
+  {"proyecto":"Edificio Love Cavancha","cliente":"Ingevec","contacto":"Patricia Hernandez","email":"phenriquez@ingevec.cl","telefono":"","monto":5340,"status":"Cotización enviada","servicios":"Agotamiento","ultimo_contacto":"20/04/2026"},
+  {"proyecto":"Sostenimiento Colector Neff","cliente":"Empresas Rivera","contacto":"Jose Rivera","email":"jrivera@empresasrivera.cl","telefono":"","monto":3668,"status":"Cotización enviada","servicios":"Entibación tipo MBV","ultimo_contacto":"17/04/2026"},
+  {"proyecto":"Edificio Duo","cliente":"Constructora CMG","contacto":"Jose Gilardi","email":"jose.gilardi@ccmg.cl","telefono":"","monto":16792,"status":"Cotización enviada","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"15/04/2026"},
+  {"proyecto":"Edificio Nexxo","cliente":"Novatec S.A","contacto":"Miguel Jara","email":"mjararoa@inoval.cl","telefono":"","monto":8826,"status":"Cotización enviada","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"20/04/2026"},
+  {"proyecto":"Proyecto de habilitacion CNT-MP El Nogal","cliente":"Constructora Carpo & Lagos","contacto":"Felipe Cuevas","email":"fcuevas@premad.cl","telefono":"","monto":17.21,"status":"Cotización enviada","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"08/04/2026"},
+  {"proyecto":"Clinica Oftalmontt","cliente":"EBCO S.A","contacto":"Manuel Gutierrez","email":"manuel.gutierrez@ebco.cl","telefono":"","monto":9285,"status":"Cotización enviada","servicios":"Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"07/04/2026"},
+  {"proyecto":"Cipreses IV","cliente":"Novatec S.A","contacto":"Juan Pablo Fuentes","email":"jpfuentes@novatec.cl","telefono":"","monto":11749,"status":"Cotización enviada","servicios":"Movimiento de tierra, Rellenos compactados","ultimo_contacto":"08/04/2026"},
+  {"proyecto":"Sistema de estabilidad de taludes Villa Futuro","cliente":"Huzagal","contacto":"David Mozo","email":"huzagal@gmail.com","telefono":"","monto":17707,"status":"Cotización enviada","servicios":"Perforación de anclajes, Shotcrete","ultimo_contacto":"01/04/2026"},
+  {"proyecto":"Subterraneos Avenida Prieto Norte","cliente":"Ferrara Ingenieria y Construccion Limitada","contacto":"Gonzalo Aguirre","email":"gonzalo.aguirre@ferrara.cl","telefono":"","monto":6290,"status":"Cotización enviada","servicios":"Movimiento de tierra","ultimo_contacto":"22/04/2026"},
+  {"proyecto":"Espacio Freire II","cliente":"Comak","contacto":"Benjamin Barriga","email":"bbarriga@gmail.com","telefono":"","monto":16547,"status":"Cotización enviada","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"23/03/2026"},
+  {"proyecto":"ACHS Valdivia","cliente":"ACHS","contacto":"Felipe Guzman","email":"faguzmann@achs.cl","telefono":"","monto":1420,"status":"Cotización enviada","servicios":"Arriendo de maquinaria","ultimo_contacto":"19/03/2026"},
+  {"proyecto":"Prive","cliente":"Versoli","contacto":"Nicole Aguayo","email":"naguayo@versoli.cl","telefono":"","monto":28.61,"status":"Proyecto adjudicado","servicios":"Arriendo de maquinaria","ultimo_contacto":"16/03/2026"},
+  {"proyecto":"Plaza Araucaria II","cliente":"Constructora Guindo Santo S.A","contacto":"Nicolas Escares","email":"nescares@mnk.cl","telefono":"","monto":3100,"status":"Proyecto adjudicado","servicios":"Entibación tipo MBV, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"26/01/2026"},
+  {"proyecto":"Edificio PDV","cliente":"EBCO S.A","contacto":"Gonzalo Gastellu","email":"gonzalo.gastellu@ebco.cl","telefono":"","monto":6982,"status":"Cotización enviada","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"20/01/2026"},
+  {"proyecto":"Edificio PDV","cliente":"AITUE S.A","contacto":"Lucca Marchini","email":"lmarchini@aitue.cl","telefono":"","monto":6982,"status":"Cotización enviada","servicios":"Agotamiento, Entibación tipo MBA, Movimiento de tierra","ultimo_contacto":"23/12/2025"},
+  {"proyecto":"Soilnailing Base Naval","cliente":"Constructora Misael Flores","contacto":"Jaime Serrano","email":"jserrano@misaelflores.cl","telefono":"","monto":4052,"status":"Proyecto adjudicado","servicios":"Entibación tipo MSN, Movimiento de tierra","ultimo_contacto":"24/11/2025"},
+  {"proyecto":"Edificio O´higgins 979","cliente":"EBCO S.A","contacto":"Aldo Risso","email":"arisso@ebco.cl","telefono":"","monto":1219,"status":"Cotización enviada","servicios":"Agotamiento, Movimiento de tierra","ultimo_contacto":"17/12/2025"},
+  {"proyecto":"Edificio Olas II","cliente":"EBCO S.A","contacto":"Miguel Contreras","email":"migel.contreras@ebco.cl","telefono":"","monto":3272,"status":"Proyecto rechazado","servicios":"Micropilotes","ultimo_contacto":"17/12/2025"},
+  {"proyecto":"Central Sur II","cliente":"EBCO S.A","contacto":"Matias Palomo","email":"matias.palomo@ebco.cl","telefono":"","monto":1270,"status":"Proyecto adjudicado","servicios":"Movimiento de tierra","ultimo_contacto":"14/11/2025"},
+  {"proyecto":"Edificio Camilo Henriquez 2565","cliente":"EBCO S.A","contacto":"Mario Espinoza","email":"mespinoza@ebco.cl","telefono":"","monto":5285,"status":"Proyecto adjudicado","servicios":"Entibación tipo MBA, Micropilotes, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"03/12/2025"},
+  {"proyecto":"Edificio Castellon 67","cliente":"EBCO S.A","contacto":"Patricio Miño","email":"patricio.mino@ebco.cl","telefono":"","monto":8381,"status":"Proyecto adjudicado","servicios":"Demolición mecánica, Agotamiento, Entibación tipo MBA, Movimiento de tierra, Rellenos compactados","ultimo_contacto":"26/09/2025"}
+];
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+const STATUS_CONFIG = {
+  "Proyecto adjudicado":   { color: "#10b981", bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/30", icon: "checkcircle", short: "Adjudicado" },
+  "Proyecto rechazado":    { color: "#ef4444", bg: "bg-rose-500/15",    text: "text-rose-300",    border: "border-rose-500/30",    icon: "xcircle",     short: "Rechazado" },
+  "Cotización enviada":    { color: "#f59e0b", bg: "bg-amber-500/15",   text: "text-amber-300",   border: "border-amber-500/30",   icon: "clock",       short: "Cotización" },
+  "Negociación proyecto":  { color: "#3b82f6", bg: "bg-sky-500/15",     text: "text-sky-300",     border: "border-sky-500/30",     icon: "trendup",     short: "Negociación" },
+  "Stand by":              { color: "#8b5cf6", bg: "bg-violet-500/15",  text: "text-violet-300",  border: "border-violet-500/30",  icon: "pause",       short: "Stand by" },
+  "Servicios menores":     { color: "#a78bfa", bg: "bg-violet-500/15",  text: "text-violet-300",  border: "border-violet-500/30",  icon: "layers",      short: "Servicios menores" },
+  "Sin definir":           { color: "#94a3b8", bg: "bg-slate-500/15",   text: "text-slate-300",   border: "border-slate-500/30",   icon: "alert",       short: "Sin definir" }
+};
+const STATUS_LIST = Object.keys(STATUS_CONFIG);
+
+// Catálogo de servicios SOIL — fuente única para los multi-select
+const SERVICIOS_CATALOGO = [
+  "Agotamiento",
+  "Arriendo de camión tolva",
+  "Arriendo de generadores",
+  "Arriendo de maquinaria",
+  "Columnas de grava",
+  "Demolición mecánica",
+  "Entibación tipo MBA",
+  "Entibación tipo MBV",
+  "Entibación tipo MSN",
+  "Escarpe de terreno",
+  "Flete con camión tolva",
+  "Hincado de perfiles",
+  "Micropilotes",
+  "Movimiento de tierra",
+  "Perforación de anclajes",
+  "Perforación de pernos",
+  "Rellenos compactados",
+  "Shotcrete",
+  "Suministro de áridos"
+].sort();
+
+// Conversión CLP <> UF
+// El usuario configura el valor UF actual desde la UI (cambia día a día en Chile)
+const DEFAULT_UF_CLP = 39500; // valor referencial 2026
+
+// Conversión UF → CLP (solo para informes con equivalencia)
+const ufToClp = (uf, ufClp) => (uf || 0) * (ufClp || DEFAULT_UF_CLP);
+
+// Format helpers — el monto interno YA está en UF, así que solo formatea
+const fmtUF = (uf) => {
+  uf = uf || 0;
+  if (!uf) return "0 UF";
+  if (uf >= 10000) return `${(uf/1000).toFixed(1)}K UF`;
+  if (uf >= 1000) return `${uf.toLocaleString("es-CL", { maximumFractionDigits: 0 })} UF`;
+  return `${uf.toLocaleString("es-CL", { maximumFractionDigits: 1 })} UF`;
+};
+
+const fmtUFLargo = (uf) => `${(uf || 0).toLocaleString("es-CL", { maximumFractionDigits: 1 })} UF`;
+
+const fmtCLP = (n) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(n || 0);
+const parseDate = (s) => {
+  if (!s) return null;
+  const m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  return new Date(+m[3], +m[2]-1, +m[1]);
+};
+
+// localStorage wrapper
+const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch(e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
+
+// =============================================================================
+// CSV PARSER + IMPORTADOR
+// =============================================================================
+
+// Parser CSV robusto — maneja comillas, comas dentro de comillas, escape ""
+function parseCSV(text) {
+  // Limpiar BOM si existe
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i+1] === '"') { cell += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      cell += ch; i++; continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === ",") { row.push(cell); cell = ""; i++; continue; }
+    if (ch === "\r") { i++; continue; }
+    if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
+    cell += ch; i++;
+  }
+  // Última fila si no termina con newline
+  if (cell.length > 0 || row.length > 0) { row.push(cell); rows.push(row); }
+  // Filtrar filas vacías
+  return rows.filter(r => r.some(c => c.trim().length > 0));
+}
+
+// Normalizar nombres de columnas (quita acentos, lowercase, trim)
+const normCol = (s) => (s || "").trim().toLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// Mapeo flexible de columnas — acepta múltiples formatos (Notion export, export propio, etc.)
+const COL_ALIASES = {
+  proyecto:        ["proyecto", "nombre proyecto", "obra", "name"],
+  cliente:         ["cliente", "clientes", "mandante", "empresa"],
+  contacto:        ["contacto", "contact", "responsable"],
+  email:           ["email", "correo electronico", "correo", "mail", "e-mail"],
+  telefono:        ["telefono", "fono", "phone", "celular"],
+  monto:           ["monto", "monto uf", "monto clp", "monto proyecto", "valor", "valor uf", "presupuesto", "amount"],
+  status:          ["status", "estado", "status negocio", "fase"],
+  servicios:       ["servicios", "servicio", "tipo de proyecto", "especialidades"],
+  ultimo_contacto: ["ultimo contacto", "fecha", "fecha contacto", "fecha ultimo contacto"],
+  notas:           ["notas", "nota", "observaciones", "comentarios"]
+};
+
+// Construye un mapa "indice columna en el CSV → campo interno"
+function mapHeaders(headers) {
+  const idx = {};
+  const normalized = headers.map(normCol);
+  for (const [field, aliases] of Object.entries(COL_ALIASES)) {
+    for (const alias of aliases) {
+      const i = normalized.indexOf(alias);
+      if (i !== -1) { idx[field] = i; break; }
+    }
+  }
+  return idx;
+}
+
+// Convierte un valor de monto del CSV a UF, aplicando heurística para CLP legacy
+function parseMontoToUF(raw) {
+  if (raw === null || raw === undefined) return 0;
+  let s = String(raw).trim();
+  if (!s) return 0;
+  // Quitar símbolos comunes
+  s = s.replace(/CLP|UF|\$|\s/gi, "");
+  // Si tiene formato chileno con punto miles y coma decimal: "1.234.567,89"
+  // detectar si tiene coma como decimal
+  if (s.includes(",") && s.lastIndexOf(",") > s.lastIndexOf(".")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    // formato anglo: 1,234,567.89 — quitar comas miles
+    s = s.replace(/,/g, "");
+  }
+  const n = parseFloat(s);
+  if (isNaN(n) || n <= 0) return 0;
+  // Heurística: > 100.000 = CLP legacy, dividir por UF de referencia
+  if (n > 100000) return Math.round((n / DEFAULT_UF_CLP) * 100) / 100;
+  return n;
+}
+
+// Normalizar status a uno de los valores válidos
+function normalizeStatus(raw) {
+  const s = normCol(raw);
+  if (!s) return "Sin definir";
+  if (s.includes("adjudic")) return "Proyecto adjudicado";
+  if (s.includes("rechaz") || s.includes("perdid")) return "Proyecto rechazado";
+  if (s.includes("cotiza")) return "Cotización enviada";
+  if (s.includes("negocia")) return "Negociación proyecto";
+  if (s.includes("stand") || s.includes("pausa") || s.includes("espera")) return "Stand by";
+  if (s.includes("menor") || s.includes("servicio")) return "Servicios menores";
+  // Si coincide exactamente con un valor del catálogo, devolverlo
+  for (const k of STATUS_LIST) if (normCol(k) === s) return k;
+  return "Sin definir";
+}
+
+// Limpia valor que puede traer URLs (caso del export Notion: "Cliente (https://...)")
+const stripUrl = (s) => String(s || "").replace(/\s*\(https?:\/\/[^)]+\)/g, "").trim();
+
+// Parsea filas CSV a registros internos
+function csvToRows(csvText) {
+  const matrix = parseCSV(csvText);
+  if (matrix.length < 2) {
+    return { rows: [], errors: ["El CSV no tiene filas de datos. Necesita al menos una fila de cabecera y una de datos."] };
+  }
+  const headers = matrix[0];
+  const idx = mapHeaders(headers);
+  if (idx.proyecto === undefined || idx.cliente === undefined) {
+    return {
+      rows: [],
+      errors: [
+        "No se reconocen las columnas obligatorias 'Proyecto' y 'Cliente'.",
+        `Cabeceras detectadas: ${headers.join(" | ")}`,
+        "Asegúrate de que el CSV tenga columnas con esos nombres (acepta también: Nombre Proyecto, Mandante, Obra, etc.)."
+      ]
+    };
+  }
+  const rows = [];
+  const warnings = [];
+  for (let r = 1; r < matrix.length; r++) {
+    const row = matrix[r];
+    const proyecto = (row[idx.proyecto] || "").trim();
+    if (!proyecto) continue;
+    rows.push({
+      proyecto,
+      cliente:         stripUrl(row[idx.cliente] || ""),
+      contacto:        (row[idx.contacto] !== undefined ? row[idx.contacto] : "").trim(),
+      email:           (row[idx.email] !== undefined ? row[idx.email] : "").trim(),
+      telefono:        (row[idx.telefono] !== undefined ? row[idx.telefono] : "").trim(),
+      monto:           parseMontoToUF(row[idx.monto] !== undefined ? row[idx.monto] : 0),
+      status:          normalizeStatus(row[idx.status] !== undefined ? row[idx.status] : ""),
+      servicios:       (row[idx.servicios] !== undefined ? row[idx.servicios] : "").trim(),
+      ultimo_contacto: (row[idx.ultimo_contacto] !== undefined ? row[idx.ultimo_contacto] : "").trim()
+    });
+  }
+  return { rows, errors: [], warnings };
+}
+
+// Convierte URLs de servicios cloud a URLs de descarga directa
+function normalizeImportUrl(raw) {
+  let url = (raw || "").trim();
+  if (!url) return null;
+  // Google Drive sharing → download directo
+  // https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+  let m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+  // Google Drive open
+  m = url.match(/drive\.google\.com\/open\?id=([^&]+)/);
+  if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+  // Dropbox: cambiar dl=0 por dl=1
+  if (url.includes("dropbox.com")) {
+    return url.replace(/[?&]dl=0/, "?dl=1").replace(/[?&]dl=$/, "?dl=1");
+  }
+  // Google Sheets export csv
+  m = url.match(/docs\.google\.com\/spreadsheets\/d\/([^/]+)/);
+  if (m) return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv`;
+  return url;
+}
+
+// ============================================================================
+// COMPONENTES DE AUTH / SYNC
+// ============================================================================
+
+function LoadingScreen({ mensaje = "Cargando..." }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="text-center">
+        <div className="loader-spin mx-auto" style={{ borderColor: "#e2e8f0", borderTopColor: "#CC1414" }}></div>
+        <div className="display-font font-black text-2xl text-[#0D2B5E] mt-4">{mensaje}</div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen() {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
+  const [mode, setMode]         = useState("signin"); // signin | reset
+
+  const handleSignIn = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    if (mode === "signin") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(error.message);
+    } else {
+      // Reset password: enviar magic link de recuperación
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin
+      });
+      if (error) setError(error.message);
+      else setError("✓ Te enviamos un correo con instrucciones para restablecer tu contraseña.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-rose-50/30 to-white p-4">
+      <div className="w-full max-w-md">
+        {/* Logo SOIL */}
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 mx-auto rounded-lg bg-gradient-to-br from-[#CC1414] to-[#8B0000] flex items-center justify-center shadow-xl shadow-red-900/20 mb-4">
+            <span className="display-font text-white text-5xl font-black">S</span>
+          </div>
+          <h1 className="display-font text-3xl font-black text-[#0D2B5E]">SOIL LIMITADA</h1>
+          <p className="text-sm text-slate-500 uppercase tracking-widest mt-1">Seguimiento de Propuestas</p>
+        </div>
+
+        {/* Formulario */}
+        <form onSubmit={handleSignIn} className="bg-white border border-slate-200 rounded-lg shadow-lg p-6 space-y-4">
+          <div>
+            <h2 className="display-font text-xl font-bold text-[#0D2B5E] uppercase">
+              {mode === "signin" ? "Ingresa a tu cuenta" : "Restablecer contraseña"}
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              {mode === "signin"
+                ? "Acceso restringido al equipo SOIL."
+                : "Te enviamos un correo para crear una nueva contraseña."}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold block mb-1">Email</label>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="tu.email@soilconstructora.cl"
+              className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]" />
+          </div>
+
+          {mode === "signin" && (
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold block mb-1">Contraseña</label>
+              <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]" />
+            </div>
+          )}
+
+          {error && (
+            <div className={`text-xs p-3 rounded border ${error.startsWith("✓") ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+              {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="w-full px-4 py-2.5 bg-[#CC1414] hover:bg-[#a01010] disabled:bg-slate-300 text-white rounded font-semibold flex items-center justify-center gap-2">
+            {loading ? <Icon name="refresh" /> : null}
+            {mode === "signin" ? "Ingresar" : "Enviar correo de recuperación"}
+          </button>
+
+          <div className="text-center pt-2 border-t border-slate-100">
+            <button type="button" onClick={() => { setMode(mode === "signin" ? "reset" : "signin"); setError(null); }}
+              className="text-xs text-slate-600 hover:text-[#CC1414]">
+              {mode === "signin" ? "¿Olvidaste tu contraseña?" : "← Volver a ingresar"}
+            </button>
+          </div>
+        </form>
+
+        <p className="text-xs text-slate-400 text-center mt-6">
+          Si necesitas una cuenta nueva, contáctate con Diego (admin).
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SyncBadge({ status }) {
+  const cfg = {
+    idle:    { label: "",          color: "" },
+    syncing: { label: "Sincronizando...", color: "text-amber-600" },
+    synced:  { label: "✓ Sincronizado",   color: "text-emerald-600" },
+    error:   { label: "⚠ Error sincronizando", color: "text-rose-600" }
+  }[status] || { label: "", color: "" };
+  if (!cfg.label) return null;
+  return <span className={`ml-2 ${cfg.color} normal-case tracking-normal`}>· {cfg.label}</span>;
+}
+
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
+function App() {
+  // Estado de autenticación
+  const [session, setSession]     = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Modo offline: si Supabase no está configurado, fallback a SEED + localStorage (compat v5)
+  const isOffline = !SUPABASE_CONFIGURED;
+
+  // Estado de datos (inicializa con SEED en offline para no romper)
+  const [data, setData] = useState(() => {
+    if (!SUPABASE_CONFIGURED) return lsGet("soil_propuestas_v2") || SEED;
+    return [];
+  });
+  const [dataLoading, setDataLoading] = useState(true);
+  const [ufClp, setUfClp] = useState(() => lsGet("soil_uf_clp") || DEFAULT_UF_CLP);
+
+  const [tab, setTab]         = useState("dashboard");
+  const [search, setSearch]   = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCliente, setFilterCliente] = useState("all");
+  const [sortBy, setSortBy]   = useState("ultimo_contacto");
+  const [sortDir, setSortDir] = useState("desc");
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editDraft, setEditDraft]   = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [notes, setNotes]     = useState(() => lsGet("soil_propuestas_notes_v1") || {});
+  const [expandedRow, setExpandedRow] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("idle");
+
+  // -------- Auth init --------
+  useEffect(() => {
+    if (isOffline) {
+      setSession({ user: { email: "modo-local@soil" } });
+      setAuthLoading(false);
+      setDataLoading(false);
+      return;
+    }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // -------- Cargar datos cuando hay sesión (modo Supabase) --------
+  useEffect(() => {
+    if (isOffline || !session) return;
+    let cancelled = false;
+    setDataLoading(true);
+    (async () => {
+      const { data: rows, error } = await supabase
+        .from("propuestas").select("*").order("updated_at", { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error("Error cargando propuestas:", error);
+        setSyncStatus("error");
+      } else {
+        const normalized = (rows || []).map(r => ({
+          id: r.id,
+          proyecto: r.proyecto, cliente: r.cliente,
+          contacto: r.contacto || "", email: r.email || "", telefono: r.telefono || "",
+          monto: parseFloat(r.monto_uf) || 0,
+          status: r.status,
+          servicios: r.servicios || "",
+          ultimo_contacto: r.ultimo_contacto || "",
+          notas_db: r.notas || ""
+        }));
+        setData(normalized);
+        setSyncStatus("synced");
+      }
+      const { data: cfg } = await supabase.from("config").select("*").eq("clave", "uf_clp").maybeSingle();
+      if (cfg && !cancelled) setUfClp(parseInt(cfg.valor) || DEFAULT_UF_CLP);
+      setDataLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
+
+  // -------- Realtime: cuando otro usuario edita, actualizamos en vivo --------
+  useEffect(() => {
+    if (isOffline || !session) return;
+    const channel = supabase
+      .channel("propuestas-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "propuestas" }, (payload) => {
+        if (payload.eventType === "INSERT" && payload.new) {
+          const r = payload.new;
+          setData(prev => {
+            if (prev.find(p => p.id === r.id)) return prev;
+            return [{
+              id: r.id, proyecto: r.proyecto, cliente: r.cliente,
+              contacto: r.contacto || "", email: r.email || "", telefono: r.telefono || "",
+              monto: parseFloat(r.monto_uf) || 0, status: r.status,
+              servicios: r.servicios || "", ultimo_contacto: r.ultimo_contacto || "",
+              notas_db: r.notas || ""
+            }, ...prev];
+          });
+        } else if (payload.eventType === "UPDATE" && payload.new) {
+          const r = payload.new;
+          setData(prev => prev.map(p => p.id === r.id ? {
+            ...p, proyecto: r.proyecto, cliente: r.cliente,
+            contacto: r.contacto || "", email: r.email || "", telefono: r.telefono || "",
+            monto: parseFloat(r.monto_uf) || 0, status: r.status,
+            servicios: r.servicios || "", ultimo_contacto: r.ultimo_contacto || "",
+            notas_db: r.notas || ""
+          } : p));
+        } else if (payload.eventType === "DELETE" && payload.old) {
+          setData(prev => prev.filter(p => p.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session]);
+
+  // -------- Persistencia offline --------
+  useEffect(() => { if (isOffline && !dataLoading) lsSet("soil_propuestas_v2", data); }, [data, dataLoading]);
+  useEffect(() => { lsSet("soil_uf_clp", ufClp); }, [ufClp]);
+  useEffect(() => { if (isOffline) lsSet("soil_propuestas_notes_v1", notes); }, [notes]);
+
+  // CÁLCULOS
+  const stats = useMemo(() => {
+    const total      = data.length;
+    const adj        = data.filter(d => d.status === "Proyecto adjudicado");
+    const rech       = data.filter(d => d.status === "Proyecto rechazado");
+    const pipeline   = data.filter(d => d.status === "Cotización enviada" || d.status === "Negociación proyecto");
+    const standby    = data.filter(d => d.status === "Stand by");
+    const decididas  = adj.length + rech.length;
+    const tasaAdj    = decididas ? (adj.length / decididas * 100) : 0;
+    const montoAdj   = adj.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoPipe  = pipeline.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoStandby = standby.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoRech  = rech.reduce((s,r) => s + (r.monto || 0), 0);
+    const adjConMonto = adj.filter(r => r.monto > 0);
+    const ticketAdj  = adjConMonto.length ? montoAdj / adjConMonto.length : 0;
+
+    const porStatus = STATUS_LIST.map(s => {
+      const arr = data.filter(d => d.status === s);
+      return { status: s, n: arr.length, monto: arr.reduce((a,r) => a + (r.monto||0), 0), color: STATUS_CONFIG[s].color };
+    }).filter(x => x.n > 0);
+
+    const clienteMap = {};
+    data.forEach(r => {
+      if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { cliente: r.cliente, n: 0, adj: 0, rech: 0, pipe: 0, monto: 0, montoAdj: 0 };
+      const c = clienteMap[r.cliente];
+      c.n++;
+      c.monto += r.monto || 0;
+      if (r.status === "Proyecto adjudicado") { c.adj++; c.montoAdj += r.monto || 0; }
+      if (r.status === "Proyecto rechazado")  c.rech++;
+      if (r.status === "Cotización enviada" || r.status === "Negociación proyecto") c.pipe++;
+    });
+    const clientes = Object.values(clienteMap).map(c => ({
+      ...c,
+      tasa: (c.adj + c.rech) ? (c.adj / (c.adj + c.rech) * 100) : null
+    })).sort((a,b) => b.n - a.n);
+
+    const servMap = {};
+    data.forEach(r => {
+      const lista = (r.servicios || "").split(",").map(s => s.trim()).filter(Boolean);
+      lista.forEach(s => {
+        if (!servMap[s]) servMap[s] = { servicio: s, total: 0, adj: 0, rech: 0, montoAdj: 0, proyectosAdj: 0 };
+        servMap[s].total++;
+        if (r.status === "Proyecto adjudicado") {
+          servMap[s].adj++;
+          // Valorización: como un proyecto puede tener N servicios, repartimos el monto en partes iguales
+          // (no es perfecto pero es la mejor estimación con la data que tenemos)
+          if ((r.monto || 0) > 0 && lista.length > 0) {
+            servMap[s].montoAdj += (r.monto / lista.length);
+            servMap[s].proyectosAdj++;
+          }
+        }
+        if (r.status === "Proyecto rechazado")  servMap[s].rech++;
+      });
+    });
+    const servicios = Object.values(servMap).map(s => ({
+      ...s,
+      tasa: (s.adj + s.rech) ? (s.adj / (s.adj + s.rech) * 100) : null
+    })).sort((a,b) => b.total - a.total);
+
+    // Ranking por valorización (para informe ejecutivo)
+    const serviciosValorizados = [...servicios].filter(s => s.adj > 0).sort((a,b) => b.montoAdj - a.montoAdj);
+
+    const tendMap = {};
+    data.forEach(r => {
+      const d = parseDate(r.ultimo_contacto);
+      if (!d) return;
+      const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if (!tendMap[k]) tendMap[k] = { mes: k, total: 0, adj: 0, monto: 0 };
+      tendMap[k].total++;
+      tendMap[k].monto += r.monto || 0;
+      if (r.status === "Proyecto adjudicado") tendMap[k].adj++;
+    });
+    const tendencia = Object.values(tendMap).sort((a,b) => a.mes.localeCompare(b.mes));
+
+    const top3n = clientes.slice(0,3).reduce((s,c) => s + c.n, 0);
+    const concentracion = total ? (top3n / total * 100) : 0;
+
+    return { total, adj, rech, pipeline, standby, decididas, tasaAdj, montoAdj, montoPipe, montoStandby, montoRech, ticketAdj, porStatus, clientes, servicios, serviciosValorizados, tendencia, concentracion };
+  }, [data]);
+
+  // INSIGHTS
+  const insights = useMemo(() => {
+    const items = [];
+    const recurrentes = stats.clientes.filter(c => c.n >= 3);
+    const estrella = recurrentes.filter(c => c.tasa !== null && c.tasa >= 70).sort((a,b) => b.adj - a.adj)[0];
+    if (estrella) items.push({
+      tipo: "ganador", titulo: `${estrella.cliente} es tu cliente ancla`,
+      detalle: `${estrella.adj}/${estrella.adj+estrella.rech} adjudicados (${estrella.tasa.toFixed(0)}%) — ${fmtUF(estrella.montoAdj)} facturados.`,
+      accion: "Consolidar cuenta clave: agendar reunión trimestral, ofrecer paquete preferente, mantener contacto activo aunque no haya licitación abierta."
+    });
+    const riesgo = recurrentes.filter(c => c.tasa !== null && c.tasa <= 40 && (c.adj + c.rech) >= 2).sort((a,b) => a.tasa - b.tasa)[0];
+    if (riesgo) items.push({
+      tipo: "riesgo", titulo: `${riesgo.cliente}: tasa de éxito baja`,
+      detalle: `Solo ${riesgo.adj}/${riesgo.adj+riesgo.rech} adjudicados (${riesgo.tasa.toFixed(0)}%). Has invertido tiempo en ${riesgo.n} estudios.`,
+      accion: "Revisar postmortems: ¿precio, plazo o relación? Pedir feedback explícito al contacto. Antes de cotizar el próximo, calificar si vale la pena el esfuerzo."
+    });
+    const servGanador = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa >= 70).sort((a,b) => b.tasa - a.tasa)[0];
+    if (servGanador) items.push({
+      tipo: "ganador", titulo: `"${servGanador.servicio}" es tu servicio más competitivo`,
+      detalle: `${servGanador.adj}/${servGanador.adj+servGanador.rech} adjudicados (${servGanador.tasa.toFixed(0)}%). Tu propuesta de valor aquí es fuerte.`,
+      accion: "Apalancar: priorizar este servicio en marketing (LinkedIn, sitio web), buscar proyectos donde sea el componente principal, generar caso de éxito documentado."
+    });
+    const servProblema = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa <= 30).sort((a,b) => a.tasa - b.tasa)[0];
+    if (servProblema) items.push({
+      tipo: "riesgo", titulo: `"${servProblema.servicio}" tiene baja conversión`,
+      detalle: `Apenas ${servProblema.adj}/${servProblema.adj+servProblema.rech} adjudicados (${servProblema.tasa.toFixed(0)}%) sobre ${servProblema.total} cotizaciones.`,
+      accion: "Diagnosticar: ¿precio fuera de mercado, mucha competencia, o no es tu sweet spot? Considerar subcontratar, asociar o dejar de cotizarlo standalone."
+    });
+    if (stats.montoPipe > 0) items.push({
+      tipo: "oportunidad", titulo: `Pipeline activo: ${fmtUF(stats.montoPipe)} en juego`,
+      detalle: `${stats.pipeline.length} propuestas entre cotización enviada y negociación. Aplicando tu tasa histórica de ${stats.tasaAdj.toFixed(0)}%, esperarías cerrar ~${fmtUF(stats.montoPipe * stats.tasaAdj/100)}.`,
+      accion: "Ejecutar follow-up sistemático esta semana sobre cada propuesta del pipeline. La probabilidad de cierre cae rápido tras 30 días sin contacto."
+    });
+    const hoy = new Date();
+    const estancadas = data.filter(r => {
+      if (r.status !== "Cotización enviada") return false;
+      const d = parseDate(r.ultimo_contacto);
+      if (!d) return true;
+      return (hoy - d) / (1000*60*60*24) > 60;
+    });
+    if (estancadas.length > 0) items.push({
+      tipo: "alerta", titulo: `${estancadas.length} cotización(es) sin movimiento +60 días`,
+      detalle: `Suman ${fmtUF(estancadas.reduce((s,r) => s+(r.monto||0), 0))} en proyectos: ${estancadas.slice(0,3).map(e => e.proyecto).join(", ")}${estancadas.length > 3 ? "..." : ""}`,
+      accion: "Llamar (no email) esta semana. Si no contestan en 2 intentos, marcar perdido y reciclar pipeline. La data sucia distorsiona los KPIs."
+    });
+    if (stats.concentracion > 50) {
+      items.push({
+        tipo: "riesgo", titulo: `Concentración alta de cartera: ${stats.concentracion.toFixed(0)}% en top 3 clientes`,
+        detalle: "Si uno se enfría, el impacto es proporcional. Es un riesgo de continuidad operativa.",
+        accion: "Diversificar prospección: definir 5-10 cuentas objetivo nuevas para Q próximo y trabajar outbound dedicado."
+      });
+    } else if (stats.concentracion > 0) {
+      items.push({
+        tipo: "info", titulo: `Concentración cartera: ${stats.concentracion.toFixed(0)}% en top 3`,
+        detalle: "Diversificación razonable. Sigue construyendo base ancha de clientes recurrentes.",
+        accion: "Mantener ratio. Ningún cliente debería superar el 35% de los estudios anuales."
+      });
+    }
+    const sinContacto = data.filter(r => !r.email && !r.telefono && r.status !== "Servicios menores");
+    if (sinContacto.length > 0) items.push({
+      tipo: "alerta", titulo: `${sinContacto.length} contacto(s) sin datos de contacto registrados`,
+      detalle: "Imposible hacer follow-up automatizado o reactivar cuentas frías sin email/teléfono.",
+      accion: "Higienizar la base: bloquear 30 minutos esta semana para completar campos faltantes vía LinkedIn o búsqueda directa."
+    });
+    return items;
+  }, [data, stats]);
+
+  const filtered = useMemo(() => {
+    let r = data.filter(d => {
+      if (filterStatus !== "all" && d.status !== filterStatus) return false;
+      if (filterCliente !== "all" && d.cliente !== filterCliente) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        return (d.proyecto+d.cliente+d.contacto+d.servicios+d.email).toLowerCase().includes(q);
+      }
+      return true;
+    });
+    r.sort((a,b) => {
+      let A = a[sortBy], B = b[sortBy];
+      if (sortBy === "ultimo_contacto") { A = parseDate(A) || new Date(0); B = parseDate(B) || new Date(0); }
+      if (sortBy === "monto") { A = a.monto; B = b.monto; }
+      if (typeof A === "string") A = A.toLowerCase();
+      if (typeof B === "string") B = B.toLowerCase();
+      if (A < B) return sortDir === "asc" ? -1 : 1;
+      if (A > B) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return r;
+  }, [data, search, filterStatus, filterCliente, sortBy, sortDir]);
+
+  const clientesUnicos = useMemo(() => [...new Set(data.map(d => d.cliente))].sort(), [data]);
+
+  const updateRow = async (id, patch) => {
+    if (isOffline) {
+      setData(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+      return;
+    }
+    setSyncStatus("syncing");
+    const dbPatch = { ...patch };
+    if ("monto" in dbPatch) { dbPatch.monto_uf = dbPatch.monto; delete dbPatch.monto; }
+    if ("notas_db" in dbPatch) { dbPatch.notas = dbPatch.notas_db; delete dbPatch.notas_db; }
+    delete dbPatch.id;
+    const { error } = await supabase.from("propuestas").update(dbPatch).eq("id", id);
+    if (error) { console.error(error); alert("Error al actualizar: " + error.message); setSyncStatus("error"); }
+    else setSyncStatus("synced");
+  };
+
+  const deleteRow = async (id) => {
+    if (!window.confirm("¿Eliminar esta propuesta? Acción no se puede deshacer.")) return;
+    if (isOffline) {
+      setData(prev => prev.filter(r => r.id !== id));
+      return;
+    }
+    setSyncStatus("syncing");
+    const { error } = await supabase.from("propuestas").delete().eq("id", id);
+    if (error) { alert("Error al eliminar: " + error.message); setSyncStatus("error"); }
+    else setSyncStatus("synced");
+  };
+
+  const addRow = async (row) => {
+    if (isOffline) {
+      setData(prev => [{ ...row, id: `local-${Date.now()}` }, ...prev]);
+      setShowNew(false);
+      return;
+    }
+    setSyncStatus("syncing");
+    const dbRow = {
+      proyecto: row.proyecto, cliente: row.cliente, contacto: row.contacto,
+      email: row.email, telefono: row.telefono, monto_uf: row.monto || 0,
+      status: row.status, servicios: row.servicios, ultimo_contacto: row.ultimo_contacto,
+      notas: row.notas_db || ""
+    };
+    const { error } = await supabase.from("propuestas").insert([dbRow]);
+    if (error) { alert("Error al crear: " + error.message); setSyncStatus("error"); }
+    else { setSyncStatus("synced"); setShowNew(false); }
+  };
+
+  const startEdit = (id) => {
+    const item = data.find(d => d.id === id);
+    if (item) { setEditingIdx(id); setEditDraft({ ...item }); }
+  };
+  const saveEdit = async () => {
+    if (editingIdx === null) return;
+    await updateRow(editingIdx, editDraft);
+    setEditingIdx(null); setEditDraft(null);
+  };
+  const handleSort = (col) => {
+    if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortBy(col); setSortDir("desc"); }
+  };
+
+  // Persistir UF en config (compartido para todo el equipo)
+  const updateUfClp = async (newVal) => {
+    setUfClp(newVal);
+    if (!isOffline) {
+      await supabase.from("config").update({ valor: String(newVal) }).eq("clave", "uf_clp");
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = ["Proyecto","Cliente","Contacto","Email","Teléfono","Monto UF","Monto CLP","Status","Servicios","Último contacto","Notas"];
+    const rows = data.map(d => [
+      d.proyecto, d.cliente, d.contacto, d.email, d.telefono,
+      d.monto,
+      d.monto > 0 ? Math.round(d.monto * ufClp) : 0,
+      d.status, d.servicios, d.ultimo_contacto, d.notas_db || notes[d.proyecto] || ""
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF"+csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `seguimiento_propuestas_soil_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  const printReport = () => { setTab("informe"); setTimeout(() => window.print(), 400); };
+
+  // Importar CSV: en modo Supabase escribe a la BD, en offline escribe local
+  const applyImport = async (newRows, mode) => {
+    if (isOffline) {
+      if (mode === "replace") {
+        setData(newRows.map(r => ({ ...r, id: `local-${Date.now()}-${Math.random()}` })));
+      } else {
+        const key = (r) => `${(r.proyecto || "").toLowerCase().trim()}|${(r.cliente || "").toLowerCase().trim()}`;
+        const existing = new Map(data.map(r => [key(r), r]));
+        newRows.forEach(r => {
+          const k = key(r);
+          if (existing.has(k)) existing.set(k, { ...existing.get(k), ...r });
+          else existing.set(k, { ...r, id: `local-${Date.now()}-${Math.random()}` });
+        });
+        setData([...existing.values()]);
+      }
+      setShowImport(false);
+      return;
+    }
+
+    // Modo Supabase
+    setSyncStatus("syncing");
+    const toDbRow = (r) => ({
+      proyecto: r.proyecto, cliente: r.cliente,
+      contacto: r.contacto || "", email: r.email || "", telefono: r.telefono || "",
+      monto_uf: r.monto || 0, status: r.status || "Cotización enviada",
+      servicios: r.servicios || "", ultimo_contacto: r.ultimo_contacto || "",
+      notas: r.notas || ""
+    });
+
+    if (mode === "replace") {
+      // Borrar todo y volver a insertar
+      const confirmReplace = window.confirm(
+        `¡Atención! Esto borrará las ${data.length} propuestas actuales en Supabase y las reemplazará con ${newRows.length}. ¿Continuar?`
+      );
+      if (!confirmReplace) { setSyncStatus("idle"); return; }
+      const { error: delErr } = await supabase.from("propuestas").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (delErr) { alert("Error al borrar: " + delErr.message); setSyncStatus("error"); return; }
+      const { error } = await supabase.from("propuestas").insert(newRows.map(toDbRow));
+      if (error) { alert("Error al insertar: " + error.message); setSyncStatus("error"); return; }
+    } else {
+      // Fusionar: para cada registro buscamos si existe por proyecto+cliente
+      let inserted = 0, updated = 0;
+      for (const r of newRows) {
+        const existing = data.find(d =>
+          (d.proyecto || "").toLowerCase().trim() === (r.proyecto || "").toLowerCase().trim() &&
+          (d.cliente || "").toLowerCase().trim() === (r.cliente || "").toLowerCase().trim()
+        );
+        if (existing) {
+          const { error } = await supabase.from("propuestas").update(toDbRow(r)).eq("id", existing.id);
+          if (error) { alert("Error fusionando: " + error.message); setSyncStatus("error"); return; }
+          updated++;
+        } else {
+          const { error } = await supabase.from("propuestas").insert([toDbRow(r)]);
+          if (error) { alert("Error insertando: " + error.message); setSyncStatus("error"); return; }
+          inserted++;
+        }
+      }
+      alert(`Importación completada: ${inserted} nuevas, ${updated} actualizadas.`);
+    }
+    setSyncStatus("synced");
+    setShowImport(false);
+  };
+
+  // Guard de carga inicial
+  if (authLoading) return <LoadingScreen mensaje="Verificando sesión..." />;
+  // Si no hay sesión y no estamos en modo offline, mostrar login
+  if (!session && !isOffline) return <LoginScreen />;
+  if (dataLoading && session) return <LoadingScreen mensaje="Cargando propuestas..." />;
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900">
+      <header className="no-print border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-40">
+        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded bg-gradient-to-br from-[#CC1414] to-[#8B0000] flex items-center justify-center shadow-lg shadow-red-900/30">
+              <span className="display-font text-white text-2xl font-black">S</span>
+            </div>
+            <div>
+              <h1 className="display-font text-3xl font-black tracking-tight text-[#0D2B5E]">SEGUIMIENTO PROPUESTAS</h1>
+              <p className="text-xs text-slate-500 uppercase tracking-widest">
+                Soil Limitada · Pipeline comercial
+                {!isOffline && <SyncBadge status={syncStatus} />}
+                {isOffline && <span className="ml-2 text-amber-600">· Modo local (Supabase no configurado)</span>}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs">
+              <span className="text-slate-700 uppercase tracking-wider font-semibold">UF</span>
+              <span className="text-slate-500">$</span>
+              <input type="number" value={ufClp}
+                onChange={e => updateUfClp(parseInt(e.target.value) || DEFAULT_UF_CLP)}
+                className="w-20 bg-transparent border-none focus:outline-none text-slate-900 font-mono text-right"
+                title="Valor UF en CLP — actualízalo según el día (compartido para todo el equipo)" />
+              <span className="text-slate-500">CLP</span>
+            </div>
+            <button onClick={exportCSV} className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition flex items-center gap-2 border border-slate-300">
+              <Icon name="download" /> CSV
+            </button>
+            <button onClick={() => setShowImport(true)} className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition flex items-center gap-2 border border-slate-300" title="Importar propuestas desde un CSV — archivo local o URL">
+              <Icon name="upload" /> Importar
+            </button>
+            <button onClick={printReport} className="px-4 py-2 text-sm bg-[#CC1414] hover:bg-[#a01010] rounded transition flex items-center gap-2 font-semibold">
+              <Icon name="printer" /> Informe Gerencia
+            </button>
+            {!isOffline && session?.user && (
+              <div className="flex items-center gap-2 ml-2 pl-3 border-l border-slate-300">
+                <div className="text-xs text-right">
+                  <div className="text-slate-500 uppercase tracking-wider text-[9px]">Sesión</div>
+                  <div className="text-slate-800 font-medium">{session.user.email}</div>
+                </div>
+                <button onClick={async () => { await supabase.auth.signOut(); }}
+                  className="p-2 hover:bg-slate-100 rounded text-slate-500 hover:text-rose-600 border border-slate-300"
+                  title="Cerrar sesión">
+                  <Icon name="x" className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <nav className="max-w-[1600px] mx-auto px-6 flex gap-1 overflow-x-auto">
+          {[
+            { id: "dashboard",  label: "Dashboard",  icon: "chart" },
+            { id: "propuestas", label: "Propuestas", icon: "briefcase" },
+            { id: "insights",   label: "Insights",   icon: "zap" },
+            { id: "informe",    label: "Informe",    icon: "file" }
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-5 py-3 text-sm uppercase tracking-wider font-semibold flex items-center gap-2 transition border-b-2 whitespace-nowrap
+                ${tab === t.id ? "border-[#CC1414] text-[#0D2B5E]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+              <Icon name={t.icon} /> {t.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="max-w-[1600px] mx-auto px-6 py-8">
+        {tab === "dashboard" && <Dashboard stats={stats} insights={insights} ufClp={ufClp} />}
+        {tab === "propuestas" && <Propuestas
+          ufClp={ufClp}
+          data={filtered} totalData={data} clientesUnicos={clientesUnicos}
+          search={search} setSearch={setSearch}
+          filterStatus={filterStatus} setFilterStatus={setFilterStatus}
+          filterCliente={filterCliente} setFilterCliente={setFilterCliente}
+          sortBy={sortBy} sortDir={sortDir} handleSort={handleSort}
+          editingIdx={editingIdx} editDraft={editDraft} setEditDraft={setEditDraft}
+          startEdit={startEdit} saveEdit={saveEdit} cancelEdit={() => { setEditingIdx(null); setEditDraft(null); }}
+          updateRow={updateRow} deleteRow={deleteRow}
+          showNew={showNew} setShowNew={setShowNew} addRow={addRow}
+          notes={notes} setNotes={setNotes}
+          expandedRow={expandedRow} setExpandedRow={setExpandedRow}
+        />}
+        {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
+        {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
+      </main>
+
+      {showImport && <ImportarCSVModal onClose={() => setShowImport(false)} onApply={applyImport} currentCount={data.length} />}
+
+      <footer className="no-print border-t border-slate-200 mt-12 py-6 text-center text-xs text-slate-500">
+        Soil Limitada · Sociedad Constructora e Inversiones — Dashboard interno · Montos en UF · Datos persistidos en localStorage del navegador
+      </footer>
+    </div>
+  );
+}
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+function Dashboard({ stats, insights, ufClp }) {
+  const kpis = [
+    { label: "Total propuestas",    value: stats.total,                          sub: "estudios registrados",      icon: "briefcase", color: "text-slate-900" },
+    { label: "Tasa adjudicación",   value: `${stats.tasaAdj.toFixed(0)}%`,       sub: `${stats.adj.length}/${stats.decididas} decididas`, icon: "target", color: stats.tasaAdj >= 50 ? "text-emerald-600" : "text-amber-600" },
+    { label: "Cartera adjudicada",  value: fmtUF(stats.montoAdj),                sub: "facturado o por facturar",   icon: "dollar", color: "text-emerald-600" },
+    { label: "Pipeline activo",     value: fmtUF(stats.montoPipe),               sub: `${stats.pipeline.length} en curso`, icon: "trendup", color: "text-amber-600" },
+    { label: "Ticket promedio",     value: fmtUF(stats.ticketAdj),               sub: "valor por adjudicación",     icon: "award", color: "text-sky-600" },
+    { label: "Concentración Top 3", value: `${stats.concentracion.toFixed(0)}%`, sub: "de propuestas en 3 clientes", icon: "users", color: stats.concentracion > 50 ? "text-rose-500" : "text-slate-900" }
+  ];
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {kpis.map((k, i) => (
+          <div key={i} className="relative grid-bg bg-white border border-slate-200 shadow-sm rounded p-5 overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-600 font-semibold">{k.label}</span>
+              <span className={k.color}><Icon name={k.icon} /></span>
+            </div>
+            <div className={`display-font text-3xl font-black ${k.color}`}>{k.value}</div>
+            <div className="text-xs text-slate-600 mt-1">{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <section>
+        <h2 className="display-font text-2xl font-black uppercase mb-4 flex items-center gap-3">
+          <span className="w-1 h-6 bg-[#CC1414]"></span> Hallazgos críticos
+        </h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          {insights.slice(0,4).map((it,i) => <InsightCard key={i} item={it} compact />)}
+        </div>
+      </section>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <ChartCard title="Distribución por estado" iconName="pie">
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie data={stats.porStatus} dataKey="n" nameKey="status" cx="50%" cy="50%" innerRadius={55} outerRadius={100} paddingAngle={3}>
+                {stats.porStatus.map((s, i) => <Cell key={i} fill={s.color} />)}
+              </Pie>
+              <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 4, fontSize: 12, color: "#0f172a", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
+                formatter={(v, n, p) => [`${v} propuestas — ${fmtUF(p.payload.monto)}`, p.payload.status]} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            {stats.porStatus.map((s,i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="w-3 h-3 rounded-sm" style={{ background: s.color }} />
+                <span className="text-slate-700 truncate">{s.status}</span>
+                <span className="text-slate-500 ml-auto">{s.n}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Top clientes por # propuestas" iconName="users">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={stats.clientes.slice(0,8)} layout="vertical" margin={{ left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+              <XAxis type="number" stroke="#475569" fontSize={11} />
+              <YAxis dataKey="cliente" type="category" stroke="#475569" fontSize={10} width={140}
+                tickFormatter={v => v.length > 22 ? v.slice(0,20)+"..." : v} />
+              <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 4, fontSize: 12, color: "#0f172a", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
+              <Bar dataKey="adj"  stackId="a" fill="#10b981" />
+              <Bar dataKey="rech" stackId="a" fill="#ef4444" />
+              <Bar dataKey="pipe" stackId="a" fill="#f59e0b" radius={[0,4,4,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex gap-4 mt-3 text-xs text-slate-700">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500"></span>Adjudicado</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-rose-500"></span>Rechazado</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-500"></span>Pipeline</span>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Servicios más cotizados" iconName="layers">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={stats.servicios.slice(0,8)}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="servicio" stroke="#475569" fontSize={9} angle={-25} textAnchor="end" height={70}
+                tickFormatter={v => v.length > 18 ? v.slice(0,16)+"..." : v} />
+              <YAxis stroke="#475569" fontSize={11} />
+              <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 4, fontSize: 12, color: "#0f172a", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
+              <Bar dataKey="total" fill="#CC1414" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Tendencia mensual de propuestas" iconName="trendup">
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={stats.tendencia}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="mes" stroke="#475569" fontSize={10} />
+              <YAxis stroke="#475569" fontSize={11} />
+              <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 4, fontSize: 12, color: "#0f172a", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="total" stroke="#CC1414" strokeWidth={2} name="Total" />
+              <Line type="monotone" dataKey="adj"   stroke="#10b981" strokeWidth={2} name="Adjudicados" />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, iconName, children }) {
+  return (
+    <div className="bg-white border border-slate-200 shadow-sm rounded p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="display-font text-xl font-bold uppercase tracking-wide text-[#0D2B5E]">{title}</h3>
+        <span className="text-slate-400"><Icon name={iconName} className="w-5 h-5" /></span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ============================================================================
+// PROPUESTAS
+// ============================================================================
+function Propuestas(p) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-200 shadow-sm rounded p-4 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[240px]">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" /></span>
+          <input type="text" placeholder="Buscar proyecto, cliente, contacto..." value={p.search} onChange={e => p.setSearch(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded pl-10 pr-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]" />
+        </div>
+        <select value={p.filterStatus} onChange={e => p.setFilterStatus(e.target.value)}
+          className="bg-slate-50 border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]">
+          <option value="all">Todos los estados ({p.totalData.length})</option>
+          {STATUS_LIST.map(s => {
+            const n = p.totalData.filter(d => d.status === s).length;
+            return n > 0 ? <option key={s} value={s}>{s} ({n})</option> : null;
+          })}
+        </select>
+        <select value={p.filterCliente} onChange={e => p.setFilterCliente(e.target.value)}
+          className="bg-slate-50 border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414] max-w-[260px]">
+          <option value="all">Todos los clientes</option>
+          {p.clientesUnicos.map(c => <option key={c} value={c}>{c.length > 35 ? c.slice(0,33)+"..." : c}</option>)}
+        </select>
+        <button onClick={() => p.setShowNew(true)} className="px-4 py-2 bg-[#CC1414] hover:bg-[#a01010] rounded text-sm font-semibold flex items-center gap-2">
+          <Icon name="plus" /> Nueva propuesta
+        </button>
+        <div className="text-xs text-slate-600 ml-auto">
+          Mostrando <span className="text-slate-900 font-semibold">{p.data.length}</span> de {p.totalData.length}
+        </div>
+      </div>
+
+      {p.showNew && <NuevaPropuestaModal onClose={() => p.setShowNew(false)} onSave={p.addRow} />}
+
+      <div className="bg-white border border-slate-200 shadow-sm rounded overflow-hidden">
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-600">
+                <th className="text-left p-3 cursor-pointer hover:text-slate-900" onClick={() => p.handleSort("proyecto")}>
+                  <span className="flex items-center gap-1">Proyecto <Icon name="sort" className="w-3 h-3" /></span>
+                </th>
+                <th className="text-left p-3 cursor-pointer hover:text-slate-900" onClick={() => p.handleSort("cliente")}>
+                  <span className="flex items-center gap-1">Cliente <Icon name="sort" className="w-3 h-3" /></span>
+                </th>
+                <th className="text-left p-3">Contacto</th>
+                <th className="text-right p-3 cursor-pointer hover:text-slate-900" onClick={() => p.handleSort("monto")}>
+                  <span className="flex items-center justify-end gap-1">Monto <Icon name="sort" className="w-3 h-3" /></span>
+                </th>
+                <th className="text-left p-3 cursor-pointer hover:text-slate-900" onClick={() => p.handleSort("status")}>
+                  <span className="flex items-center gap-1">Estado <Icon name="sort" className="w-3 h-3" /></span>
+                </th>
+                <th className="text-left p-3 cursor-pointer hover:text-slate-900" onClick={() => p.handleSort("ultimo_contacto")}>
+                  <span className="flex items-center gap-1">Último contacto <Icon name="sort" className="w-3 h-3" /></span>
+                </th>
+                <th className="text-right p-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.data.map((row) => {
+                const rowId = row.id;
+                const isEditing = p.editingIdx === rowId;
+                const isExpanded = p.expandedRow === rowId;
+                const cfg = STATUS_CONFIG[row.status] || STATUS_CONFIG["Sin definir"];
+
+                if (isEditing) return (
+                  <tr key={rowId} className="border-b border-slate-200 bg-slate-50">
+                    <td colSpan={7} className="p-4">
+                      <EditForm draft={p.editDraft} setDraft={p.setEditDraft} onSave={p.saveEdit} onCancel={p.cancelEdit} />
+                    </td>
+                  </tr>
+                );
+
+                return (
+                  <Fragment key={rowId}>
+                    <tr className="border-b border-slate-100 hover:bg-slate-50 transition">
+                      <td className="p-3 max-w-[250px]">
+                        <button onClick={() => p.setExpandedRow(isExpanded ? null : rowId)}
+                          className="text-left font-medium text-slate-900 hover:text-[#CC1414] transition flex items-center gap-2">
+                          <span className={`transition inline-flex ${isExpanded ? "rotate-180" : ""}`}><Icon name="chevron" className="w-3 h-3" /></span>
+                          <span className="truncate">{row.proyecto}</span>
+                        </button>
+                      </td>
+                      <td className="p-3 max-w-[220px]"><span className="truncate block text-slate-700">{row.cliente}</span></td>
+                      <td className="p-3 text-slate-700">
+                        <div className="text-xs">{row.contacto || "—"}</div>
+                        {row.email && <div className="text-[10px] text-slate-500">{row.email}</div>}
+                      </td>
+                      <td className="p-3 text-right font-mono text-sm">{row.monto > 0 ? fmtUFLargo(row.monto) : <span className="text-slate-400">—</span>}</td>
+                      <td className="p-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] uppercase tracking-wider font-semibold border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                          <Icon name={cfg.icon} className="w-3 h-3" /> {cfg.short}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-600 text-xs">{row.ultimo_contacto || "—"}</td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => p.startEdit(rowId)} className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-slate-900" title="Editar">
+                            <Icon name="edit" className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => p.deleteRow(rowId)} className="p-1.5 hover:bg-rose-100 rounded text-slate-500 hover:text-rose-700" title="Eliminar">
+                            <Icon name="trash" className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <td colSpan={7} className="p-5">
+                          <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                              <h4 className="text-xs uppercase tracking-wider text-slate-600 mb-2">Servicios cotizados</h4>
+                              <div className="flex flex-wrap gap-1.5">
+                                {row.servicios.split(",").map((s,i) => (
+                                  <span key={i} className="text-[11px] px-2 py-1 bg-white border border-slate-300 rounded text-slate-700">{s.trim()}</span>
+                                ))}
+                              </div>
+                              <div className="mt-3 text-xs text-slate-700">
+                                <span className="text-slate-500">Teléfono:</span> {row.telefono || "—"}
+                              </div>
+                            </div>
+                            <div>
+                              <h4 className="text-xs uppercase tracking-wider text-slate-600 mb-2">Notas internas</h4>
+                              <textarea value={row.notas_db || ""}
+                                onChange={e => p.updateRow(rowId, { notas_db: e.target.value })}
+                                placeholder="Anotaciones de seguimiento, próximos pasos, observaciones..."
+                                className="w-full h-24 bg-white border border-slate-300 rounded p-2 text-xs text-slate-900 focus:outline-none focus:border-[#CC1414] resize-none" />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {p.data.length === 0 && (
+                <tr><td colSpan={7} className="p-12 text-center text-slate-400">Sin resultados con esos filtros.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// EDIT FORM + NUEVA PROPUESTA
+// ============================================================================
+function EditForm({ draft, setDraft, onSave, onCancel }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Proyecto" value={draft.proyecto} onChange={v => setDraft({...draft, proyecto: v})} />
+        <Field label="Cliente"  value={draft.cliente}  onChange={v => setDraft({...draft, cliente: v})} />
+        <Field label="Contacto" value={draft.contacto} onChange={v => setDraft({...draft, contacto: v})} />
+        <Field label="Email"    value={draft.email}    onChange={v => setDraft({...draft, email: v})} />
+        <Field label="Teléfono" value={draft.telefono} onChange={v => setDraft({...draft, telefono: v})} />
+        <Field label="Monto en UF" value={draft.monto}   onChange={v => setDraft({...draft, monto: parseFloat(v)||0})} type="number" />
+        <ServiciosMultiSelect value={draft.servicios} onChange={v => setDraft({...draft, servicios: v})} />
+        <Field label="Último contacto (DD/MM/YYYY)" value={draft.ultimo_contacto} onChange={v => setDraft({...draft, ultimo_contacto: v})} />
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1">Estado</label>
+          <select value={draft.status} onChange={e => setDraft({...draft, status: e.target.value})}
+            className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]">
+            {STATUS_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <button onClick={onCancel} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded text-sm flex items-center gap-2">
+          <Icon name="x" /> Cancelar
+        </button>
+        <button onClick={onSave} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded text-sm font-semibold flex items-center gap-2">
+          <Icon name="save" /> Guardar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, type="text", full=false }) {
+  return (
+    <div className={full ? "md:col-span-2" : ""}>
+      <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1">{label}</label>
+      <input type={type} value={value || ""} onChange={e => onChange(e.target.value)}
+        className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]" />
+    </div>
+  );
+}
+
+// MultiSelect de servicios — chips clickeables + buscador opcional para servicios nuevos
+function ServiciosMultiSelect({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [customNew, setCustomNew] = useState("");
+  const ref = useRef(null);
+
+  // Parse "A, B, C" → ["A","B","C"]
+  const selected = useMemo(() => (value || "").split(",").map(s => s.trim()).filter(Boolean), [value]);
+
+  // Catálogo + cualquier servicio custom previamente guardado en el draft
+  const opciones = useMemo(() => {
+    const set = new Set([...SERVICIOS_CATALOGO, ...selected]);
+    return [...set].sort();
+  }, [selected]);
+
+  // Cerrar al click fuera
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const toggle = (s) => {
+    const has = selected.includes(s);
+    const next = has ? selected.filter(x => x !== s) : [...selected, s];
+    onChange(next.join(", "));
+  };
+  const removeChip = (s) => onChange(selected.filter(x => x !== s).join(", "));
+  const addCustom = () => {
+    const v = customNew.trim();
+    if (!v) return;
+    if (!selected.includes(v)) onChange([...selected, v].join(", "));
+    setCustomNew("");
+  };
+
+  return (
+    <div className="md:col-span-2 relative" ref={ref}>
+      <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1">
+        Servicios involucrados <span className="text-slate-500">({selected.length} seleccionado{selected.length !== 1 ? "s" : ""})</span>
+      </label>
+
+      {/* Caja con chips */}
+      <div onClick={() => setOpen(true)}
+        className="min-h-[42px] w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-sm cursor-pointer hover:border-slate-400 focus-within:border-[#CC1414] flex flex-wrap gap-1.5 items-center">
+        {selected.length === 0 && <span className="text-slate-400 px-1">Seleccionar servicios...</span>}
+        {selected.map((s, i) => (
+          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#CC1414]/10 border border-[#CC1414]/40 text-[#8B0000] rounded text-xs">
+            {s}
+            <button type="button" onClick={(e) => { e.stopPropagation(); removeChip(s); }}
+              className="hover:text-[#CC1414]">
+              <Icon name="x" className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+        <span className="ml-auto text-slate-400"><Icon name="chevron" className="w-4 h-4" /></span>
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-slate-300 rounded shadow-2xl max-h-72 overflow-y-auto scrollbar-thin">
+          <div className="sticky top-0 bg-white border-b border-slate-200 p-2 flex gap-1">
+            <input
+              type="text" value={customNew}
+              onChange={e => setCustomNew(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+              placeholder="Agregar servicio nuevo..."
+              className="flex-1 bg-white border border-slate-300 rounded px-2 py-1 text-xs text-slate-900 focus:outline-none focus:border-[#CC1414]"
+            />
+            <button type="button" onClick={addCustom}
+              className="px-2 py-1 bg-[#CC1414] hover:bg-[#a01010] rounded text-xs font-semibold flex items-center gap-1">
+              <Icon name="plus" className="w-3 h-3" /> Sumar
+            </button>
+          </div>
+          <div className="p-1">
+            {opciones.map((s, i) => {
+              const checked = selected.includes(s);
+              return (
+                <button key={i} type="button" onClick={() => toggle(s)}
+                  className={`w-full text-left px-3 py-2 rounded text-sm flex items-center gap-2 transition
+                    ${checked ? "bg-[#CC1414]/10 text-[#8B0000]" : "hover:bg-slate-100 text-slate-700"}`}>
+                  <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0
+                    ${checked ? "bg-[#CC1414] border-[#CC1414]" : "border-slate-400"}`}>
+                    {checked && <Icon name="checkcircle" className="w-3 h-3" />}
+                  </span>
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+          <div className="sticky bottom-0 bg-white border-t border-slate-200 p-2 flex justify-end">
+            <button type="button" onClick={() => setOpen(false)}
+              className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded text-xs">Cerrar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// IMPORTAR CSV MODAL
+// ============================================================================
+function ImportarCSVModal({ onClose, onApply, currentCount }) {
+  const [tab, setTab]         = useState("link"); // "file" | "link"
+  const [url, setUrl]         = useState("");
+  const [parsedRows, setRows] = useState(null);
+  const [errors, setErrors]   = useState([]);
+  const [warnings, setWarnings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode]       = useState("merge"); // "replace" | "merge"
+  const [savedLinks, setSavedLinks] = useState(() => lsGet("soil_import_links") || []);
+
+  const fileInputRef = useRef(null);
+
+  const handleParsed = (csvText) => {
+    const result = csvToRows(csvText);
+    setRows(result.rows);
+    setErrors(result.errors || []);
+    setWarnings(result.warnings || []);
+  };
+
+  const onFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setErrors(["El archivo es muy grande (máx 5 MB). Asegúrate de que sea solo datos."]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => handleParsed(ev.target.result);
+    reader.onerror = () => setErrors(["No se pudo leer el archivo."]);
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const onUrlLoad = async () => {
+    const direct = normalizeImportUrl(url);
+    if (!direct) { setErrors(["Pega primero un link válido."]); return; }
+    setLoading(true);
+    setErrors([]);
+    setRows(null);
+    try {
+      const resp = await fetch(direct);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      // Detectar HTML en lugar de CSV (página de login, error, etc.)
+      if (text.trim().toLowerCase().startsWith("<!doctype") || text.trim().toLowerCase().startsWith("<html")) {
+        throw new Error("La URL devolvió una página HTML en lugar de un CSV. Si es Google Drive/Dropbox, revisa que el link sea de descarga directa o que el archivo sea público.");
+      }
+      handleParsed(text);
+      // Guardar link en historial (máx 5)
+      const updated = [url, ...savedLinks.filter(l => l !== url)].slice(0, 5);
+      setSavedLinks(updated);
+      lsSet("soil_import_links", updated);
+    } catch (err) {
+      const msg = err.message || String(err);
+      // CORS típicamente da "Failed to fetch"
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        setErrors([
+          "El navegador bloqueó la descarga (CORS).",
+          "Esto es normal cuando el HTML está abierto desde el escritorio: muchos servicios cloud no permiten descarga directa.",
+          "Solución más rápida: descarga el CSV manualmente y usa la pestaña 'Subir archivo'.",
+          "También funciona si subes este HTML a tu sitio (soilconstructora.cl) — desde un dominio web sí puede descargar."
+        ]);
+      } else {
+        setErrors([`No se pudo cargar: ${msg}`]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirm = () => {
+    if (parsedRows && parsedRows.length > 0) {
+      onApply(parsedRows, mode);
+    }
+  };
+
+  const TabBtn = ({ id, icon, label }) => (
+    <button onClick={() => { setTab(id); setRows(null); setErrors([]); }}
+      className={`flex-1 px-4 py-2.5 text-sm font-semibold border-b-2 flex items-center justify-center gap-2 transition
+        ${tab === id ? "border-[#CC1414] text-[#0D2B5E] bg-rose-50/30" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+      <Icon name={icon} className="w-4 h-4" /> {label}
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white border border-slate-200 rounded max-w-3xl w-full p-0 max-h-[92vh] overflow-y-auto shadow-2xl">
+        <div className="flex items-center justify-between p-6 pb-3">
+          <div>
+            <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E] flex items-center gap-2">
+              <Icon name="upload" className="w-5 h-5" /> Importar propuestas desde CSV
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Carga un archivo local o un link de Google Drive / Dropbox / sitio web. La base actual tiene {currentCount} propuestas.
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700">
+            <Icon name="x" className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex border-b border-slate-200 mx-6">
+          <TabBtn id="link" icon="link"     label="Desde URL / Link" />
+          <TabBtn id="file" icon="fileText" label="Subir archivo local" />
+        </div>
+
+        <div className="p-6 pt-5 space-y-4">
+          {tab === "file" && (
+            <div className="space-y-3">
+              <div className="border-2 border-dashed border-slate-300 rounded p-8 text-center bg-slate-50/50">
+                <Icon name="fileText" className="w-12 h-12 text-slate-400" />
+                <div className="mt-3">
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2 bg-[#CC1414] hover:bg-[#a01010] text-white rounded text-sm font-semibold">
+                    Seleccionar archivo CSV
+                  </button>
+                  <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onFileSelected} className="hidden" />
+                </div>
+                <p className="text-xs text-slate-500 mt-3">
+                  Formatos aceptados: CSV con cabeceras. Reconoce nombres en español o inglés.
+                  <br />Tamaño máximo: 5 MB.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {tab === "link" && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs uppercase tracking-wider text-slate-600 font-semibold block mb-1">
+                  Link al CSV
+                </label>
+                <div className="flex gap-2">
+                  <input type="url" value={url} onChange={e => setUrl(e.target.value)}
+                    placeholder="https://drive.google.com/file/d/.../view o cualquier URL pública..."
+                    onKeyDown={e => { if (e.key === "Enter") onUrlLoad(); }}
+                    className="flex-1 bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]" />
+                  <button onClick={onUrlLoad} disabled={loading || !url.trim()}
+                    className="px-4 py-2 bg-[#CC1414] hover:bg-[#a01010] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded text-sm font-semibold flex items-center gap-2">
+                    {loading ? <><Icon name="refresh" className="w-4 h-4" /> Cargando...</> : <><Icon name="download" className="w-4 h-4" /> Cargar</>}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Soporta enlaces de Google Drive, Dropbox, Google Sheets (se convierten automáticamente a descarga directa).
+                </p>
+              </div>
+
+              {savedLinks.length > 0 && (
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold block mb-1.5">
+                    Links recientes
+                  </label>
+                  <div className="space-y-1">
+                    {savedLinks.map((l, i) => (
+                      <div key={i} className="flex items-center gap-2 group">
+                        <button onClick={() => setUrl(l)}
+                          className="flex-1 text-left px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded text-xs text-slate-700 truncate">
+                          <Icon name="link" className="w-3 h-3" /> {l}
+                        </button>
+                        <button onClick={() => {
+                          const updated = savedLinks.filter(x => x !== l);
+                          setSavedLinks(updated);
+                          lsSet("soil_import_links", updated);
+                        }} className="p-1 text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100">
+                          <Icon name="x" className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Errores */}
+          {errors.length > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded p-3">
+              <div className="flex items-start gap-2">
+                <Icon name="alert" className="w-4 h-4 text-rose-600 mt-0.5" />
+                <div className="text-sm text-rose-900 flex-1">
+                  {errors.map((e, i) => <p key={i} className={i > 0 ? "mt-1.5 text-xs" : "font-semibold"}>{e}</p>)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview */}
+          {parsedRows && parsedRows.length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Icon name="checkcircle" className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <div className="font-semibold text-emerald-900">
+                    CSV cargado correctamente · {parsedRows.length} propuesta{parsedRows.length !== 1 ? "s" : ""} detectada{parsedRows.length !== 1 ? "s" : ""}
+                  </div>
+                  <div className="text-xs text-emerald-700">
+                    Ejemplo: {parsedRows[0].proyecto} — {parsedRows[0].cliente}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-emerald-200 rounded p-3 mb-3 max-h-40 overflow-y-auto scrollbar-thin">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500">
+                      <th className="text-left p-1">Proyecto</th>
+                      <th className="text-left p-1">Cliente</th>
+                      <th className="text-right p-1">Monto UF</th>
+                      <th className="text-left p-1">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedRows.slice(0, 8).map((r, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="p-1 truncate max-w-[180px]" title={r.proyecto}>{r.proyecto}</td>
+                        <td className="p-1 truncate max-w-[160px]" title={r.cliente}>{r.cliente}</td>
+                        <td className="p-1 text-right font-mono">{r.monto > 0 ? r.monto.toLocaleString("es-CL", {maximumFractionDigits: 1}) : "—"}</td>
+                        <td className="p-1 text-slate-600">{r.status}</td>
+                      </tr>
+                    ))}
+                    {parsedRows.length > 8 && (
+                      <tr><td colSpan={4} className="p-1 text-center text-slate-400 italic">... y {parsedRows.length - 8} más</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wider text-slate-700 font-semibold block">¿Cómo aplicar la importación?</label>
+                <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100/50">
+                  <input type="radio" name="mode" value="merge" checked={mode === "merge"} onChange={() => setMode("merge")} className="mt-0.5" />
+                  <div className="text-sm">
+                    <div className="font-semibold text-slate-900">Fusionar con la base actual <span className="text-emerald-700 text-xs">(recomendado)</span></div>
+                    <div className="text-xs text-slate-600">Si una propuesta ya existe (mismo proyecto+cliente), se actualiza con los nuevos datos. Las que no estén se agregan.</div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-rose-50">
+                  <input type="radio" name="mode" value="replace" checked={mode === "replace"} onChange={() => setMode("replace")} className="mt-0.5" />
+                  <div className="text-sm">
+                    <div className="font-semibold text-slate-900">Reemplazar todo</div>
+                    <div className="text-xs text-rose-700">Borra las {currentCount} propuestas actuales y deja solo las del CSV. Esta acción no se puede deshacer.</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-200 p-4 flex justify-end gap-2 sticky bottom-0 bg-white">
+          <button onClick={onClose}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded text-sm">
+            Cancelar
+          </button>
+          <button onClick={confirm} disabled={!parsedRows || parsedRows.length === 0}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded text-sm font-semibold flex items-center gap-2">
+            <Icon name="save" className="w-4 h-4" />
+            {parsedRows && parsedRows.length > 0
+              ? `Importar ${parsedRows.length} propuesta${parsedRows.length !== 1 ? "s" : ""} (${mode === "merge" ? "fusionar" : "reemplazar"})`
+              : "Importar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NuevaPropuestaModal({ onClose, onSave }) {
+  const [draft, setDraft] = useState({
+    proyecto: "", cliente: "", contacto: "", email: "", telefono: "",
+    monto: 0, status: "Cotización enviada", servicios: "", ultimo_contacto: ""
+  });
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white border border-slate-200 rounded max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Nueva propuesta</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700"><Icon name="x" className="w-5 h-5" /></button>
+        </div>
+        <EditForm draft={draft} setDraft={setDraft} onSave={() => onSave(draft)} onCancel={onClose} />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INSIGHT CARD
+// ============================================================================
+function InsightCard({ item, compact }) {
+  const config = {
+    ganador:     { color: "border-emerald-500/50 bg-emerald-50",     icon: "award",  iconC: "text-emerald-600", tag: "OPORTUNIDAD CONSOLIDADA" },
+    riesgo:      { color: "border-rose-500/50 bg-rose-50",           icon: "alert",  iconC: "text-rose-600",    tag: "RIESGO" },
+    oportunidad: { color: "border-amber-500/50 bg-amber-50",         icon: "trendup",iconC: "text-amber-600",   tag: "OPORTUNIDAD" },
+    alerta:      { color: "border-orange-500/50 bg-orange-50",       icon: "alert",  iconC: "text-orange-600",  tag: "ALERTA OPERATIVA" },
+    info:        { color: "border-sky-500/50 bg-sky-50",             icon: "eye",    iconC: "text-sky-600",     tag: "OBSERVACIÓN" }
+  }[item.tipo] || { color: "border-slate-300", icon: "eye", iconC: "text-slate-600", tag: "INFO" };
+
+  return (
+    <div className={`border ${config.color} rounded p-5 transition hover:scale-[1.01]`}>
+      <div className="flex items-start gap-3">
+        <span className={`mt-0.5 flex-shrink-0 ${config.iconC}`}><Icon name={config.icon} className="w-5 h-5" /></span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-[9px] font-bold uppercase tracking-[0.15em] ${config.iconC}`}>{config.tag}</span>
+          </div>
+          <h4 className="font-bold text-base text-slate-900 mb-1">{item.titulo}</h4>
+          <p className="text-sm text-slate-700 leading-relaxed">{item.detalle}</p>
+          {!compact && (
+            <div className="mt-3 pt-3 border-t border-slate-200">
+              <div className="text-[10px] uppercase tracking-wider text-slate-600 mb-1">Acción recomendada</div>
+              <p className="text-sm text-slate-800 leading-relaxed">{item.accion}</p>
+            </div>
+          )}
+          {compact && <p className="text-xs text-slate-600 mt-2 italic">→ {item.accion}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INSIGHTS TAB
+// ============================================================================
+function Insights({ insights, stats, ufClp }) {
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-rose-50 to-transparent border-l-4 border-[#CC1414] p-5 rounded">
+        <h2 className="display-font text-3xl font-black uppercase mb-2 text-[#0D2B5E]">Análisis estratégico</h2>
+        <p className="text-slate-700 text-sm max-w-3xl">
+          Patrones detectados en tu cartera comercial que merecen atención. Cada hallazgo incluye una acción concreta.
+          Esto no reemplaza tu criterio — sirve para que ningún punto ciego te tome por sorpresa.
+        </p>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {insights.map((it,i) => <InsightCard key={i} item={it} />)}
+      </div>
+
+      <div className="bg-white border border-slate-200 shadow-sm rounded p-6">
+        <h3 className="display-font text-xl font-bold uppercase mb-4 text-[#0D2B5E]">Detalle clientes recurrentes (≥2 propuestas)</h3>
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wider text-slate-600 border-b border-slate-300 bg-slate-50">
+                <th className="text-left p-2">Cliente</th>
+                <th className="text-right p-2"># Prop.</th>
+                <th className="text-right p-2">Adj.</th>
+                <th className="text-right p-2">Rech.</th>
+                <th className="text-right p-2">Pipeline</th>
+                <th className="text-right p-2">Tasa</th>
+                <th className="text-right p-2">Monto adjudicado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.clientes.filter(c => c.n >= 2).map((c,i) => (
+                <tr key={i} className="border-b border-slate-200 hover:bg-slate-50">
+                  <td className="p-2 text-slate-800">{c.cliente}</td>
+                  <td className="p-2 text-right font-mono">{c.n}</td>
+                  <td className="p-2 text-right font-mono text-emerald-600">{c.adj}</td>
+                  <td className="p-2 text-right font-mono text-rose-600">{c.rech}</td>
+                  <td className="p-2 text-right font-mono text-amber-600">{c.pipe}</td>
+                  <td className="p-2 text-right font-mono">
+                    {c.tasa !== null ? (
+                      <span className={c.tasa >= 60 ? "text-emerald-600" : c.tasa >= 40 ? "text-amber-600" : "text-rose-600"}>
+                        {c.tasa.toFixed(0)}%
+                      </span>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
+                  <td className="p-2 text-right font-mono text-slate-700">{fmtUF(c.montoAdj)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 shadow-sm rounded p-6">
+        <h3 className="display-font text-xl font-bold uppercase mb-4 text-[#0D2B5E]">Tasa de conversión por servicio</h3>
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wider text-slate-600 border-b border-slate-300 bg-slate-50">
+                <th className="text-left p-2">Servicio</th>
+                <th className="text-right p-2">Cotizaciones</th>
+                <th className="text-right p-2">Adjudicadas</th>
+                <th className="text-right p-2">Rechazadas</th>
+                <th className="text-right p-2">Tasa éxito</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.servicios.map((s,i) => (
+                <tr key={i} className="border-b border-slate-200 hover:bg-slate-50">
+                  <td className="p-2 text-slate-800">{s.servicio}</td>
+                  <td className="p-2 text-right font-mono">{s.total}</td>
+                  <td className="p-2 text-right font-mono text-emerald-600">{s.adj}</td>
+                  <td className="p-2 text-right font-mono text-rose-600">{s.rech}</td>
+                  <td className="p-2 text-right font-mono">
+                    {s.tasa !== null ? (
+                      <span className={s.tasa >= 60 ? "text-emerald-600" : s.tasa >= 40 ? "text-amber-600" : "text-rose-600"}>
+                        {s.tasa.toFixed(0)}%
+                      </span>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INFORME EJECUTIVO
+// ============================================================================
+function InformeEjecutivo({ stats, insights, data, ufClp }) {
+  const fechaInforme = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
+  const pipelineProyectado = stats.montoPipe * stats.tasaAdj / 100;
+  const tagMap = { ganador: "Oportunidad consolidada", riesgo: "Riesgo identificado", oportunidad: "Oportunidad", alerta: "Alerta operativa", info: "Observación" };
+
+  // Toggle de moneda — el usuario decide cómo presentar a gerencia
+  const [moneda, setMoneda] = useState("UF"); // "UF" | "CLP" | "ambos"
+
+  // Helper que respeta la elección
+  const fmtMonto = (uf) => {
+    if (moneda === "UF") return fmtUFLargo(uf);
+    if (moneda === "CLP") return fmtCLP(ufToClp(uf, ufClp));
+    return `${fmtUFLargo(uf)} (${fmtCLP(ufToClp(uf, ufClp))})`;
+  };
+
+  return (
+    <div data-printable className="bg-white text-slate-900 rounded shadow-2xl">
+      <div className="no-print bg-slate-100 p-4 border-b border-slate-300 flex items-center justify-between flex-wrap gap-3">
+        <div className="text-sm text-slate-700">Vista previa del informe ejecutivo. Listo para imprimir o guardar como PDF.</div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-600 uppercase tracking-wider font-semibold">Mostrar montos en:</span>
+            <div className="flex border border-slate-300 rounded overflow-hidden">
+              {["UF", "CLP", "ambos"].map(opt => (
+                <button key={opt} onClick={() => setMoneda(opt)}
+                  className={`px-3 py-1.5 text-xs font-semibold transition ${moneda === opt ? "bg-[#CC1414] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <span className="text-slate-500 ml-2">UF ref: ${ufClp.toLocaleString("es-CL")} CLP</span>
+          </div>
+          <button onClick={() => window.print()} className="px-4 py-2 bg-[#CC1414] text-white rounded text-sm font-semibold flex items-center gap-2">
+            <Icon name="printer" /> Imprimir / Guardar PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="p-12 max-w-4xl mx-auto">
+        <div className="border-b-4 border-[#CC1414] pb-6 mb-8">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-[0.3em] text-slate-500 mb-2">Soil Limitada · Reporte interno</div>
+              <h1 className="display-font text-5xl font-black uppercase text-[#0D2B5E]">Informe ejecutivo</h1>
+              <h2 className="display-font text-2xl font-bold uppercase text-slate-700 mt-1">Pipeline comercial</h2>
+            </div>
+            <div className="text-right">
+              <div className="w-16 h-16 rounded bg-[#CC1414] flex items-center justify-center mb-2 ml-auto">
+                <span className="display-font text-white text-3xl font-black">S</span>
+              </div>
+              <div className="text-xs text-slate-500">{fechaInforme}</div>
+            </div>
+          </div>
+        </div>
+
+        <section className="mb-10">
+          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Resumen ejecutivo</h3>
+          <p className="text-slate-700 leading-relaxed mb-3">
+            La cartera de propuestas registrada en seguimiento contiene <strong>{stats.total} estudios comerciales</strong>,
+            con una tasa de adjudicación histórica del <strong className="text-[#CC1414]">{stats.tasaAdj.toFixed(0)}%</strong>{" "}
+            sobre las propuestas decididas (adjudicadas o rechazadas). El monto facturado o por facturar sobre proyectos
+            adjudicados asciende a <strong>{fmtMonto(stats.montoAdj)}</strong>.
+          </p>
+          <p className="text-slate-700 leading-relaxed">
+            El pipeline comercial activo (cotizaciones enviadas y proyectos en negociación) representa{" "}
+            <strong>{fmtMonto(stats.montoPipe)}</strong> en {stats.pipeline.length} oportunidades. Aplicando la tasa de
+            adjudicación histórica, la proyección esperada de cierre alcanza aproximadamente{" "}
+            <strong className="text-emerald-700">{fmtMonto(pipelineProyectado)}</strong>.
+          </p>
+        </section>
+
+        <section className="mb-10">
+          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Indicadores clave</h3>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              ["Total propuestas",    stats.total,                          "Estudios registrados"],
+              ["Tasa adjudicación",   `${stats.tasaAdj.toFixed(0)}%`,       `${stats.adj.length}/${stats.decididas} decididas`],
+              ["Cartera adjudicada",  fmtMonto(stats.montoAdj),             "Monto cerrado"],
+              ["Pipeline activo",     fmtMonto(stats.montoPipe),            `${stats.pipeline.length} oportunidades`],
+              ["Ticket promedio",     fmtMonto(stats.ticketAdj),            "Por proyecto adjudicado"],
+              ["Concentración Top 3", `${stats.concentracion.toFixed(0)}%`, "% propuestas en top 3 clientes"]
+            ].map(([l,v,s], i) => (
+              <div key={i} className="border border-slate-300 rounded p-4">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">{l}</div>
+                <div className={`display-font font-black text-[#0D2B5E] mt-1 ${moneda === "ambos" && typeof v === "string" && v.includes("UF") ? "text-base leading-tight" : "text-3xl"}`}>{v}</div>
+                <div className="text-xs text-slate-600 mt-1">{s}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Distribución por estado</h3>
+          <table className="w-full text-sm border border-slate-300">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="text-left p-2 border border-slate-300">Estado</th>
+                <th className="text-right p-2 border border-slate-300">N° propuestas</th>
+                <th className="text-right p-2 border border-slate-300">% del total</th>
+                <th className="text-right p-2 border border-slate-300">Monto asociado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.porStatus.map((s,i) => (
+                <tr key={i}>
+                  <td className="p-2 border border-slate-300 font-medium">{s.status}</td>
+                  <td className="p-2 border border-slate-300 text-right">{s.n}</td>
+                  <td className="p-2 border border-slate-300 text-right">{(s.n/stats.total*100).toFixed(1)}%</td>
+                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(s.monto)}</td>
+                </tr>
+              ))}
+              <tr className="bg-slate-50 font-bold">
+                <td className="p-2 border border-slate-300">TOTAL</td>
+                <td className="p-2 border border-slate-300 text-right">{stats.total}</td>
+                <td className="p-2 border border-slate-300 text-right">100%</td>
+                <td className="p-2 border border-slate-300 text-right font-mono">
+                  {fmtMonto(stats.porStatus.reduce((s,x) => s + x.monto, 0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section className="mb-10 print-page">
+          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Top 10 clientes</h3>
+          <table className="w-full text-sm border border-slate-300">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="text-left p-2 border border-slate-300">Cliente</th>
+                <th className="text-right p-2 border border-slate-300">Prop.</th>
+                <th className="text-right p-2 border border-slate-300">Adj.</th>
+                <th className="text-right p-2 border border-slate-300">Rech.</th>
+                <th className="text-right p-2 border border-slate-300">Tasa</th>
+                <th className="text-right p-2 border border-slate-300">Adjudicado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.clientes.slice(0,10).map((c,i) => (
+                <tr key={i}>
+                  <td className="p-2 border border-slate-300">{c.cliente}</td>
+                  <td className="p-2 border border-slate-300 text-right">{c.n}</td>
+                  <td className="p-2 border border-slate-300 text-right">{c.adj}</td>
+                  <td className="p-2 border border-slate-300 text-right">{c.rech}</td>
+                  <td className="p-2 border border-slate-300 text-right">{c.tasa !== null ? `${c.tasa.toFixed(0)}%` : "—"}</td>
+                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(c.montoAdj)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="mb-10 print-page">
+          <h3 className="display-font text-2xl font-black uppercase mb-2 text-[#0D2B5E]">Resumen valorizado por servicio prestado</h3>
+          <p className="text-sm text-slate-600 mb-4 italic">
+            Distribución de la cartera adjudicada por línea de servicio. Cuando un proyecto involucra varios servicios,
+            el monto se prorratea en partes iguales entre ellos para estimar la contribución de cada uno.
+          </p>
+          <table className="w-full text-sm border border-slate-300">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="text-left p-2 border border-slate-300">Servicio prestado</th>
+                <th className="text-right p-2 border border-slate-300">Proyectos adj.</th>
+                <th className="text-right p-2 border border-slate-300">Tasa éxito</th>
+                <th className="text-right p-2 border border-slate-300">Monto valorizado</th>
+                <th className="text-right p-2 border border-slate-300">% cartera</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const totalValorizado = stats.serviciosValorizados.reduce((s, x) => s + x.montoAdj, 0);
+                return stats.serviciosValorizados.map((s, i) => (
+                  <tr key={i}>
+                    <td className="p-2 border border-slate-300 font-medium">{s.servicio}</td>
+                    <td className="p-2 border border-slate-300 text-right">{s.adj}</td>
+                    <td className="p-2 border border-slate-300 text-right">
+                      {s.tasa !== null ? `${s.tasa.toFixed(0)}%` : "—"}
+                    </td>
+                    <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(s.montoAdj)}</td>
+                    <td className="p-2 border border-slate-300 text-right font-mono">
+                      {totalValorizado > 0 ? `${(s.montoAdj / totalValorizado * 100).toFixed(1)}%` : "—"}
+                    </td>
+                  </tr>
+                ));
+              })()}
+              <tr className="bg-slate-50 font-bold">
+                <td className="p-2 border border-slate-300">TOTAL VALORIZADO</td>
+                <td className="p-2 border border-slate-300 text-right">{stats.adj.length}</td>
+                <td className="p-2 border border-slate-300 text-right">{stats.tasaAdj.toFixed(0)}%</td>
+                <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  {fmtMonto(stats.serviciosValorizados.reduce((s, x) => s + x.montoAdj, 0))}
+                </td>
+                <td className="p-2 border border-slate-300 text-right font-mono">100%</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="text-xs text-slate-500 mt-3 italic">
+            Nota metodológica: el "monto valorizado por servicio" suma la fracción proporcional de cada proyecto adjudicado,
+            por lo que el total coincide con la cartera adjudicada global. Los proyectos sin monto registrado no aportan.
+          </p>
+        </section>
+
+        <section className="mb-10">
+          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Hallazgos y recomendaciones</h3>
+          <div className="space-y-4">
+            {insights.map((it,i) => (
+              <div key={i} className="border-l-4 border-[#CC1414] pl-4 py-2">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-1">{tagMap[it.tipo] || "Hallazgo"}</div>
+                <h4 className="font-bold text-base mb-1">{it.titulo}</h4>
+                <p className="text-sm text-slate-700 mb-2">{it.detalle}</p>
+                <p className="text-sm text-slate-900"><strong>Acción recomendada: </strong>{it.accion}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="border-t-2 border-slate-300 pt-4 text-xs text-slate-500 flex justify-between">
+          <span>Soil Limitada · Sociedad Constructora e Inversiones</span>
+          <span>Generado el {fechaInforme}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// MOUNT
+// ============================================================================
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+// Hide loader cuando React montó
+setTimeout(() => {
+  const loader = document.getElementById("loader");
+  if (loader) {
+    loader.classList.add("hidden");
+    setTimeout(() => { if (loader) loader.remove(); }, 500);
+  }
+}, 100);
+
+</script>
+</body>
+</html>

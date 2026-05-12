@@ -23,6 +23,9 @@
 <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+<!-- Exportación PDF para Cotizaciones -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
 <style>
   body { margin:0; background:#ffffff; font-family:'Inter',system-ui,sans-serif; }
   .display-font { font-family:'Barlow Condensed','Impact',sans-serif; letter-spacing:-0.01em; }
@@ -117,7 +120,12 @@ const Icon = ({ name, className = "", size = 16 }) => {
     link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
     fileText: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>',
     refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
-    toggle: '<rect width="20" height="12" x="2" y="6" rx="6" ry="6"/><circle cx="16" cy="12" r="2"/>'
+    toggle: '<rect width="20" height="12" x="2" y="6" rx="6" ry="6"/><circle cx="16" cy="12" r="2"/>',
+    calculator: '<rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/>',
+    filePdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h1.5a1.5 1.5 0 0 1 0 3H9v3"/><path d="M14 13v6h2"/>',
+    fileWord: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M7 13l1.5 6 1.5-4 1.5 4 1.5-6"/>',
+    copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'
   };
   // Tamaños explícitos vía atributos width/height para que funcionen aunque Tailwind no cargue
   const sizeMap = { "w-3 h-3": 12, "w-3.5 h-3.5": 14, "w-4 h-4": 16, "w-5 h-5": 20, "w-6 h-6": 24 };
@@ -1052,10 +1060,11 @@ function App() {
         </div>
         <nav className="max-w-[1600px] mx-auto px-6 flex gap-1 overflow-x-auto">
           {[
-            { id: "dashboard",  label: "Dashboard",  icon: "chart" },
-            { id: "propuestas", label: "Propuestas", icon: "briefcase" },
-            { id: "insights",   label: "Insights",   icon: "zap" },
-            { id: "informe",    label: "Informe",    icon: "file" }
+            { id: "dashboard",   label: "Dashboard",   icon: "chart" },
+            { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
+            { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
+            { id: "insights",    label: "Insights",    icon: "zap" },
+            { id: "informe",     label: "Informe",     icon: "file" }
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-5 py-3 text-sm uppercase tracking-wider font-semibold flex items-center gap-2 transition border-b-2 whitespace-nowrap
@@ -1082,6 +1091,7 @@ function App() {
           notes={notes} setNotes={setNotes}
           expandedRow={expandedRow} setExpandedRow={setExpandedRow}
         />}
+        {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} />}
         {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
         {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
@@ -2151,12 +2161,1639 @@ function InformeEjecutivo({ stats, insights, data, ufClp }) {
 }
 
 // ============================================================================
+// COTIZACIONES — catálogo de servicios y exportación PDF/Word
+// ============================================================================
+
+// Catálogo precargado de partidas frecuentes — editable por el usuario
+const CATALOGO_SERVICIOS = {
+  "Movimientos de Tierra": [
+    { descripcion: "Escarpe y retiro de capa vegetal", unidad: "m²",  precio_uf: 0.08 },
+    { descripcion: "Excavación masiva en terreno común", unidad: "m³",  precio_uf: 0.32 },
+    { descripcion: "Excavación en terreno con presencia de bolones", unidad: "m³",  precio_uf: 0.58 },
+    { descripcion: "Carguío y transporte a botadero autorizado", unidad: "m³",  precio_uf: 0.45 },
+    { descripcion: "Perfilado y compactación de fondo de excavación", unidad: "m²",  precio_uf: 0.18 },
+    { descripcion: "Relleno con material seleccionado compactado", unidad: "m³",  precio_uf: 0.55 },
+    { descripcion: "Mejoramiento de subrasante (estabilizado)", unidad: "m²",  precio_uf: 0.42 }
+  ],
+  "Entibación tipo MBA": [
+    { descripcion: "Perforación para pilote HEB (Ø según diseño)",   unidad: "ml",  precio_uf: 2.85 },
+    { descripcion: "Suministro e instalación de perfil HEB 160",     unidad: "kg",  precio_uf: 0.072 },
+    { descripcion: "Hormigón H30 en fundación de pilote",            unidad: "m³",  precio_uf: 5.40 },
+    { descripcion: "Anclaje activo postensado (incluye perforación y lechada)", unidad: "ml", precio_uf: 1.95 },
+    { descripcion: "Tensado y bloqueo de anclaje",                   unidad: "un",  precio_uf: 6.20 },
+    { descripcion: "Shotcrete H25 e=10 cm entre pilotes",            unidad: "m²",  precio_uf: 1.65 },
+    { descripcion: "Malla electrosoldada C92 para shotcrete",        unidad: "m²",  precio_uf: 0.32 },
+    { descripcion: "Drenaje barbacana PVC Ø75",                      unidad: "un",  precio_uf: 0.85 },
+    { descripcion: "Monitoreo topográfico de muro (semanal)",        unidad: "gl",  precio_uf: 4.20 }
+  ],
+  "Agotamiento / Abatimiento de Napa": [
+    { descripcion: "Perforación de pozo profundo Ø12\" (incluye entubación PVC ranurado)", unidad: "ml", precio_uf: 3.80 },
+    { descripcion: "Suministro e instalación de bomba sumergible 5 HP",                 unidad: "un",  precio_uf: 38.00 },
+    { descripcion: "Arriendo mensual bomba sumergible + operación",                     unidad: "mes", precio_uf: 12.50 },
+    { descripcion: "Generador eléctrico stand-by (arriendo mensual)",                   unidad: "mes", precio_uf: 18.00 },
+    { descripcion: "Piezómetro de monitoreo nivel freático (Ø2\", hasta 12 m)",         unidad: "un",  precio_uf: 14.50 },
+    { descripcion: "Tendido y conducción de aguas extraídas (HDPE Ø75)",                unidad: "ml",  precio_uf: 0.42 },
+    { descripcion: "Monitoreo piezométrico y reporte mensual",                          unidad: "mes", precio_uf: 8.20 },
+    { descripcion: "Mantención preventiva del sistema",                                 unidad: "mes", precio_uf: 6.50 }
+  ]
+};
+
+// Borrador en blanco — réplica exacta de la plantilla oficial Soil
+const meses_es = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const _hoy = new Date();
+const fechaLargaHoy = `${_hoy.getDate()} de ${meses_es[_hoy.getMonth()]} de ${_hoy.getFullYear()}`;
+
+const COTIZACION_VACIA = () => ({
+  // Encabezado
+  numero:    "S-[NÚMERO]/" + String(_hoy.getMonth()+1).padStart(2,"0") + String(_hoy.getFullYear()).slice(-2),
+  fecha:     _hoy.toISOString().slice(0,10),
+  fecha_larga: fechaLargaHoy,
+  ciudad:    "Concepción",
+  validez:   "30 días corridos",
+  moneda:    "UF",
+
+  // Destinatario (Tabla inicial)
+  cliente: {
+    razon_social: "[RAZÓN SOCIAL DEL CLIENTE]",
+    rut: "",
+    contacto: "[NOMBRE CONTACTO]",
+    cargo:    "[CARGO]",
+    email:    "[correo@cliente.cl]",
+    telefono: "(+569) [NÚMERO]",
+    direccion:""
+  },
+  proyecto: {
+    nombre:    "[NOMBRE DEL PROYECTO]",
+    ubicacion: "[DIRECCIÓN, COMUNA, REGIÓN]",
+    referencia:"[BREVE DESCRIPCIÓN DEL ALCANCE — ej: Muro Berlinés Anclado, Soil Nailing, Excavación Masiva]",
+    modalidad: "Suministro y montaje por parte de Soil Ltda. — Precios unitarios en UF (Unidad de Fomento)."
+  },
+
+  // Saludo + antecedentes
+  saludo: "De nuestra consideración:",
+  intro: "Junto con saludar, presentamos a continuación nuestra propuesta técnico-económica para la ejecución de los trabajos referidos al proyecto en cuestión. La presente oferta ha sido elaborada sobre la base de los antecedentes entregados por el mandante y las condiciones particulares del sitio.",
+  antecedentes: [
+    "[ej. Estudio de Mecánica de Suelos – nombre del archivo.pdf]",
+    "[ej. Planos de fundaciones – plano-XX.dwg]",
+    "[ej. Memoria de cálculo del sostenimiento – memoria.pdf]",
+    "[agregar los que correspondan]"
+  ],
+
+  // A. RESUMEN Y CONSIDERACIONES
+  alcance_general: "[Describir en 2 a 4 líneas el servicio principal a ejecutar — ej. ejecución de Muro Berlinés Anclado con suministro de perfiles metálicos, entablonado de pino, anclajes temporales según diseño, vigas longuerinas y movimiento de tierra asociado.]",
+  caracteristicas: [
+    "[Diámetro / sección de elementos — ej. perfiles W250x28,4 / W250x44,8 / W250x58,0]",
+    "[Profundidad o longitud máxima de ejecución — ej. hasta 12,0 m bajo plataforma de trabajo]",
+    "[Capacidad de los equipos — ej. perforadora hidráulica clase 8–12 ton, inyectora con bomba de émbolo]",
+    "[Limitaciones del equipo — ej. no perfora rocas, caliche ni suelos de muy alta compacidad. Cualquier obstáculo enterrado debe ser retirado previamente por el mandante]",
+    "[Tipo de suelo asumido según mecánica de suelos — ej. arenas limosas SP-SM hasta cota de proyecto]"
+  ],
+  cubicacion: [
+    { n: 1, descripcion: "[Ej. Suministro e instalación de anclajes temporales]", unidad: "ML", cantidad: "506,50" },
+    { n: 2, descripcion: "[Ej. Hincado de perfiles W250x28,4 — incluye suministro]", unidad: "ML", cantidad: "268,50" },
+    { n: 3, descripcion: "[Ej. Entablado de pino entre perfiles]", unidad: "M²", cantidad: "516,00" },
+    { n: 4, descripcion: "[Ej. Excavación masiva con taludes 1:1 — volumen geométrico]", unidad: "M³", cantidad: "7.935,00" }
+  ],
+
+  // B. PROPUESTA ECONÓMICA — Ítem 1 (Logística), 2 (Ejecución), 3 (Stand-by)
+  item1_partidas: [
+    { id: 1, item: "1.1",
+      descripcion: "Movilización y desmovilización de equipos, personal y herramientas. Incluye transporte ida–vuelta, armado/desarme de maquinaria, cargas y descargas, puesta en marcha en obra, periodo de acreditación y charlas de inducción del personal Soil (1 día máximo).",
+      unidad: "GL", cantidad: 1.00, precio_uf: 0 }
+  ],
+  item2_partidas: [],  // se llena desde catálogo
+  item3_partidas: [
+    { id: 1, item: "3.1", descripcion: "Stand-by equipo de hincado/perforación + cuadrilla operativa", unidad: "Hora", cantidad_txt: "Eventual", precio_uf: 0 },
+    { id: 2, item: "3.2", descripcion: "Stand-by equipo de anclajes + planta inyectora",              unidad: "Hora", cantidad_txt: "Eventual", precio_uf: 0 },
+    { id: 3, item: "3.3", descripcion: "Stand-by equipo de Shotcrete + cuadrilla de proyección",      unidad: "Hora", cantidad_txt: "Eventual", precio_uf: 0 },
+    { id: 4, item: "3.4", descripcion: "Sobreconsumo de cemento sobre estimado de [XX] kg/ml",        unidad: "Litro",cantidad_txt: "Eventual", precio_uf: 0 }
+  ],
+
+  // Descripción del alcance de los ítems
+  descripcion_alcance: {
+    item1_1: "Ítem 1.1: Comprende los costos de movilización ida–vuelta de equipos, personal y materiales hacia y desde la obra; armado, desarme y puesta en marcha de la maquinaria; periodo de acreditación y charlas de inducción del personal Soil en obra (1 día máximo).",
+    item2_1_6: "Ítem 2.1 a 2.6: Considera mano de obra calificada, supervisión, equipos especializados, consumibles, provisión de materiales y ejecución de los elementos de sostenimiento según planos e ingeniería entregada. Las vigas longuerinas son de propiedad de Soil Ltda.",
+    item2_7: "Ítem 2.7: Excavación masiva con taludes 1:1, medida en volumen geométrico. Soil deja sello con tolerancia de ±10 cm — el sello fino es responsabilidad del mandante.",
+    item3:   "Ítem 3.1 a 3.4: Costos eventuales que se aplicarán únicamente cuando ocurran detenciones por causas ajenas a Soil Ltda., con registro diario en libro de obras firmado por la ITO y/o el mandante."
+  },
+
+  // C. PLAZOS Y PROGRAMA DE TRABAJO
+  plazo_ejecucion: {
+    plazo_total: "[XX] semanas — [XX] días corridos.",
+    primer_dia:  "Se considera primer día de trabajo aquel en que la cuadrilla y los equipos de Soil se encuentren listos para iniciar en obra (posterior al término del proceso de acreditación).",
+    ultimo_dia:  "Se considera último día de trabajo aquel en que se ejecute la última partida asignada.",
+    no_incluye:  "El plazo NO incluye tiempos de stand-by por causas ajenas a Soil ni movilizaciones internas adicionales.",
+    reaccion:    "Plazo de reacción desde recepción de la Orden de Compra y/o contrato firmado: 1 a 2 semanas, sujeto a disponibilidad de equipos y materiales."
+  },
+  turnos: [
+    "Modalidad: Jornada 5x2 (lunes a viernes), cumpliendo normativa legal vigente.",
+    "Horario: lunes a jueves de 08:00 a 18:00 con 1 hora de colación; viernes de 08:00 a 17:00 con 1 hora de colación.",
+    "Descansos: sábados, domingos y festivos.",
+    "Cualquier modalidad distinta (turnos extendidos, horas extra, jornadas excepcionales) requiere evaluación previa y reformulación de la oferta."
+  ],
+  comunicaciones: [
+    "Reunión de kick-off al inicio de obra, firmada por ambas partes.",
+    "Reunión semanal vía videollamada (Meet/Teams/Zoom) o presencial entre Soil y el mandante para control general.",
+    "Acta de reunión emitida por Soil; plazo de revisión y contra-respuesta del cliente: 5 días corridos. Vencido el plazo, se considera aprobada y tendrá carácter contractual.",
+    "Libro de obras entregado diariamente; el cliente tiene 2 días laborales para revisarlo y firmarlo. Vencido ese plazo, se considera aprobado."
+  ],
+
+  // D. STAND-BY
+  standby_intro: "Se aplicará el cobro por horas de espera de los equipos, máquinas y personal de Soil ante la ocurrencia de alguna de las siguientes situaciones, todas ajenas a la responsabilidad de Soil Ltda.:",
+  standby_causas: [
+    "Lentitud o demora en la entrega de plataformas, caminos de acceso, puntos topográficos, demarcaciones o frentes de trabajo.",
+    "Paralización temporal de la obra por determinación del cliente o mandante, por motivos de cualquier índole.",
+    "Secuencias constructivas no informadas previamente, modificaciones tardías o indefiniciones del proyecto.",
+    "Falta de espacios o de suministros (energía, agua) en los frentes de trabajo.",
+    "Condiciones de terreno no informadas o inesperadas (rocas, bolones, servicios enterrados, agua freática).",
+    "Procesos de acreditación o protocolos administrativos no informados previamente que excedan el día contemplado en la oferta."
+  ],
+  standby_cierre: "La ocurrencia de cualquiera de estos eventos extenderá directamente el plazo total de ejecución y dará lugar al cobro según los precios unitarios del Ítem 3. Si la suma de horas consecutivas de detención supera 5 días laborales, Soil tendrá la facultad de retirar las cuadrillas — el costo de la nueva movilización será de cargo del mandante.",
+
+  // E. ALCANCES Y CONDICIONES
+  aportes_soil: [
+    "Mano de obra calificada y supervisión técnica para la ejecución de las perforaciones, hincados, anclajes, inyecciones, instalaciones y movimientos de tierra según el alcance contratado.",
+    "Maquinaria especializada (perforadoras, inyectoras, equipos de Shotcrete, retroexcavadoras, compresores, soldadoras) y todos los consumibles operativos, salvo los explícitamente declarados a cargo del cliente.",
+    "Materiales para la ejecución de los elementos especificados: barras, perfiles, tubos, lechadas, aditivos, mortero de inyección, malla, pernos, anclajes, etc.",
+    "Fletes ida y vuelta de los equipos y materiales que estén a cargo de Soil.",
+    "Servicio de replanteo de control acotado al alcance (no reemplaza la topografía base, que es del cliente).",
+    "Especificaciones técnicas, métodos constructivos, planos as-built del trabajo ejecutado y libro de obras."
+  ],
+  aportes_cliente: [
+    "Permisos de construcción, excavación y toda la documentación administrativa necesaria para iniciar y desarrollar los trabajos (incluyendo permisos municipales de corte de calle, ruido, etc.).",
+    "Topografía base del proyecto: replanteo de los puntos de ejecución con al menos 24 horas de antelación al ingreso de la cuadrilla, y validación de cada elemento ejecutado.",
+    "Cierre perimetral completo de la obra (incluido portón de acceso para camiones de movimiento de tierra) y servicio de guardia permanente fuera del horario de trabajo.",
+    "Suministro de energía eléctrica trifásica (aproximadamente [XX] KVA, a confirmar) y agua potable continua para preparación de lechada y consumo, a no más de 20 m del punto de trabajo más alejado.",
+    "Plataformas de trabajo planas, transitables, drenadas y sin agua, dimensionadas para el desplazamiento seguro de la maquinaria. Caminos de acceso operativos para tránsito de cama baja con equipo perforador.",
+    "Catastro y retiro de servicios enterrados (sanitarios, eléctricos, gas, telecomunicaciones) que puedan interferir con los trabajos. Soil no se hace responsable de daños a elementos enterrados no informados.",
+    "Sello de excavación fina dentro de la tolerancia de ±10 cm que entrega Soil.",
+    "Limpieza continua del frente de trabajo y retiro a botadero del material extraído de las perforaciones, lechada sobrante y detritus, mediante retroexcavadora o minicargador.",
+    "Agotamiento del nivel freático durante la ejecución, en caso de que las perforaciones lo requieran o cuando el sello quede bajo la napa.",
+    "Servicios higiénicos para el personal Soil (baño, ducha con agua caliente, vestuario) según D.S. N°594. Si no se proveen dentro de las 24 horas de iniciados los trabajos, Soil podrá detener la faena cobrando stand-by.",
+    "Medidas de mitigación ambiental: control de polvo, ruido y manejo comunicacional con vecinos cuando aplique.",
+    "Prevencionista de Riesgos certificado en obra, cuando la magnitud o normativa interna del proyecto lo requiera.",
+    "Espacio cerrado para almacenamiento de materiales, repuestos y herramientas Soil (aprox. 2 × (Lo+2) m, donde Lo = longitud máxima del elemento). Espacio de 3 × 6 m para planta de inyección, cuando aplique.",
+    "Descabezado o corte superior eventual de los elementos en caso de no quedar exactamente en cota de proyecto, y demolición de elementos de hormigón armado existentes que requieran ser atravesados.",
+    "Costos de boletas de garantía, si las hubiere, y todo ensayo de materiales o instrumentación geotécnica que no esté expresamente cotizado."
+  ],
+  generales: [
+    "Esta cotización se ha elaborado sobre la base de los antecedentes entregados por el cliente. Cualquier información adicional o modificación posterior puede generar revisión de los precios y plazos.",
+    "Se ha considerado faena continua, sin interrupciones, con una sola movilización por equipo. Movilizaciones adicionales serán cobradas según el ítem correspondiente.",
+    "No se incluyen ensayos de materiales, ensayos de pernos o anclajes, ni instrumentación geotécnica que no esté expresamente cotizada en esta oferta.",
+    "Soil no se hace responsable por daños a estructuras o cierres que presenten condiciones subestándar (incumplimiento de normativa legal). Posterior a la entrega formal del terreno, Soil presentará un catastro del estado de deslindes a la ITO y/o mandante.",
+    "Se cancelarán las cantidades realmente ejecutadas para los movimientos de tierra. Los precios unitarios fueron estudiados sobre la base de las cantidades mínimas declaradas en el cuadro de precios; reducciones superiores al 20% pueden gatillar revisión.",
+    "Si durante la ejecución se detecta una condición de terreno no informada (rocas, bolones, suelos sueltos, agua freática fuerte, obstáculos enterrados), Soil paralizará los trabajos en esa posición y propondrá un diagnóstico con su impacto económico.",
+    "Esta oferta no contempla perforación en terreno que no sea natural — los obstáculos deben ser retirados con anterioridad por el mandante.",
+    "Las vigas longuerinas y demás elementos declarados como propiedad de Soil deben ser devueltos al término de los trabajos.",
+    "Soil entregará al cliente el Certificado de Cumplimiento de Obligaciones Previsionales y Laborales (F30/F30-1) emitido por la Inspección del Trabajo. Este certificado se entrega a fines del mes \"n\" por las obligaciones del mes \"n-1\" y no podrá condicionar la aprobación de los estados de pago.",
+    "Si el mandante reduce o termina unilateralmente los trabajos contratados, deberá pagar a Soil una indemnización del 20% sobre la diferencia entre el contrato original y lo efectivamente ejecutado, incluida en el estado de pago final."
+  ],
+
+  // F. Matriz de responsabilidad
+  matriz_intro: "La siguiente matriz resume los aportes y responsabilidades de cada parte. En caso de conflicto con otra sección de este documento, prevalecerá esta matriz.",
+  matriz: [
+    { desc: "Documentación técnica del proyecto y planos de fundaciones", soil: "", cliente: "X" },
+    { desc: "Mecánica de suelos y/o estudio geotécnico base", soil: "", cliente: "X" },
+    { desc: "Permisos de construcción y excavación; permisos municipales y de corte de calle", soil: "", cliente: "X" },
+    { desc: "Diseño e ingeniería del sostenimiento / fundaciones / movimientos de tierra", soil: "", cliente: "X" },
+    { desc: "Topografía base, replanteo y validación de cada elemento ejecutado", soil: "", cliente: "X" },
+    { desc: "Cierre perimetral de la obra y servicio de guardia", soil: "", cliente: "X" },
+    { desc: "Habilitación y mantención continua de plataformas y caminos de acceso", soil: "", cliente: "X" },
+    { desc: "Catastro y retiro de obstáculos o servicios enterrados", soil: "", cliente: "X" },
+    { desc: "Suministro de energía trifásica y agua potable continua en frentes de trabajo", soil: "", cliente: "X" },
+    { desc: "Servicios higiénicos para personal Soil (baño con agua caliente, vestuario)", soil: "", cliente: "X" },
+    { desc: "Estaciones de emergencia, ambientales y de sombra según normativa vigente", soil: "", cliente: "X" },
+    { desc: "Prevencionista de Riesgos en obra (cuando aplique)", soil: "", cliente: "X" },
+    { desc: "Medidas de mitigación de polvo, ruido y manejo comunicacional con vecinos", soil: "", cliente: "X" },
+    { desc: "Bodega cerrada para repuestos, herramientas y materiales Soil", soil: "", cliente: "X" },
+    { desc: "Retiro a botadero de material extraído de perforaciones y excavaciones", soil: "", cliente: "X" },
+    { desc: "Agotamiento del nivel freático durante la ejecución", soil: "", cliente: "X" },
+    { desc: "Sello fino de excavación (Soil entrega ±10 cm de tolerancia)", soil: "", cliente: "X" },
+    { desc: "Reparación de pavimentos por daños asociados al tránsito de camiones", soil: "", cliente: "X" },
+    { desc: "Logística de equipos, personal y materiales (entrada–salida obra)", soil: "X", cliente: "" },
+    { desc: "Mano de obra calificada y supervisión técnica de Soil", soil: "X", cliente: "" },
+    { desc: "Maquinaria especializada y consumibles operativos", soil: "X", cliente: "" },
+    { desc: "Materiales del alcance contratado (perfiles, anclajes, lechada, malla, pernos, etc.)", soil: "X", cliente: "" },
+    { desc: "Ejecución del alcance según ingeniería y especificaciones", soil: "X", cliente: "" },
+    { desc: "Mantención mecánica y abastecimiento de combustible de equipos Soil", soil: "X", cliente: "" },
+    { desc: "Replanteo de control acotado al alcance (no reemplaza topografía base)", soil: "X", cliente: "" },
+    { desc: "Libro de obras y documentación as-built del trabajo ejecutado", soil: "X", cliente: "" },
+    { desc: "Alojamiento, alimentación y transporte diario del personal Soil", soil: "X", cliente: "" }
+  ],
+
+  // G. Aspectos comerciales
+  comercial: {
+    modalidad:     "Suministro y montaje a precios unitarios en UF (Unidad de Fomento de Chile). Los montos se convertirán a pesos chilenos al valor de la UF del día de aprobación de cada estado de pago.",
+    anticipo:      "[15%] del monto total del contrato, contra la recepción de la Orden de Compra y/o contrato firmado. El anticipo se descontará proporcionalmente en los estados de pago siguientes.",
+    estados_pago:  "Estados de pago [quincenales / mensuales] con un plazo máximo de aprobación de 5 días corridos por parte del cliente. Vencido el plazo sin objeciones, Soil considerará el estado de pago como aprobado y procederá a su facturación.",
+    forma_pago:    "Pago a [30 / 45] días desde la fecha de facturación, mediante transferencia electrónica o cheque a nombre de Sociedad Constructora e Inversiones Soil Ltda.",
+    logistica:     "Se facturará una vez ingresados los equipos y la cuadrilla a obra. Pago a [30] días desde la facturación.",
+    atrasos:       "Originarán reliquidación automática del reajuste y aplicación del interés máximo convencional vigente al momento de la mora.",
+    retenciones:   "Sin aplicación de retenciones por descuento directo en estados de pago. Si el contrato exige garantías por porcentaje, éstas se reemplazarán por boletas o pólizas de garantía equivalentes.",
+    boletas:       "[5%] por Fiel Cumplimiento — vigencia: plazo de obra + 30 días. [5%] por Correcta Ejecución — vigencia: plazo de obra + [4] meses. Boletas adicionales o seguros particulares no incluidos serán evaluados en presupuesto separado.",
+    penalizaciones:"Multa máxima por atraso atribuible a Soil: [0,015%] del monto del contrato por día corrido de atraso, con tope máximo del [5%] del monto total del contrato. Aplica sobre el plazo final de ejecución, no sobre hitos parciales. No aplica cuando el atraso es atribuible al mandante o a causas de fuerza mayor.",
+    validez:       "30 días corridos desde la fecha de emisión, sujeta a disponibilidad de equipos, materiales y stock de proveedores. Aprobación crediticia interna del cliente por parte de Soil previo a cerrar la adjudicación.",
+    confidencialidad:"Toda la información proporcionada por Soil (planos, memorias, procedimientos constructivos, esta cotización) tiene carácter confidencial y no podrá ser facilitada a terceros sin autorización expresa.",
+    prelacion:     "Esta cotización forma parte íntegra del contrato y tendrá prelación sobre otros documentos del proyecto, salvo el contrato firmado entre las partes."
+  },
+
+  // H. Datos comerciales (constantes Soil)
+  datos_soil: {
+    razon_social: "Sociedad Constructora e Inversiones Soil Limitada",
+    fantasia:     "Soil Ltda. — Obras Previas",
+    rut:          "[XX.XXX.XXX-X]",
+    giro:         "Construcción de obras de ingeniería civil; obras previas; movimiento de tierras",
+    direccion:    "Ramón Carrasco #231, Casa N°93, Lomas de Antilhue, Concepción, Región del Biobío",
+    representante:"Germán Fuentes Torres",
+    correo:       "constructora@soilconstructora.cl",
+    correo_ger:   "gerafuentes@soilconstructora.cl",
+    telefono:     "(+569) 6666 3229",
+    sitio:        "www.soilconstructora.cl"
+  },
+
+  // Cierre + firmas
+  cierre_texto: "Esperamos que la presente oferta sea de su conveniencia y quedamos a su disposición para resolver cualquier consulta técnica o comercial. Agradecemos desde ya la confianza depositada en Soil Ltda.",
+  firma_izq: { nombre: "Germán Fuentes Torres", cargo: "Representante Legal",            empresa: "Sociedad Constructora e Inversiones Soil Ltda." },
+  firma_der: { nombre: "Diego Illanes Villalba", cargo: "Chief Operating Officer (COO)", empresa: "Sociedad Constructora e Inversiones Soil Ltda." },
+
+  // Compatibilidad con código previo
+  partidas: [],
+  notas: ""
+});
+
+const fmtNum = (n, d=2) => {
+  if (n === null || n === undefined || isNaN(n)) return "0";
+  return Number(n).toLocaleString("es-CL", { minimumFractionDigits: d, maximumFractionDigits: d });
+};
+
+function Cotizaciones({ ufClp, clientesUnicos }) {
+  const STORAGE_KEY = "soil_cotizacion_borrador_v2";
+
+  // Cargar borrador si existe — migración silenciosa desde v1
+  const [cot, setCot] = useState(() => {
+    try {
+      let saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) saved = localStorage.getItem("soil_cotizacion_borrador");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed.item2_partidas) return COTIZACION_VACIA();
+        return parsed;
+      }
+      return COTIZACION_VACIA();
+    } catch { return COTIZACION_VACIA(); }
+  });
+  const [cotId, setCotId] = useState(null);     // id en Supabase si la cotización está guardada
+  const [historial, setHistorial] = useState([]); // viene de Supabase
+  const [cargandoHist, setCargandoHist] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error | offline
+  const [showCatalogo, setShowCatalogo] = useState(false);
+  const [showHistorial, setShowHistorial] = useState(false);
+  const [toast, setToast] = useState(null);
+  const printRef = useRef(null);
+
+  const supabaseOn = !!(typeof supabase !== "undefined" && supabase);
+
+  // Cargar historial desde Supabase al montar + suscripción realtime
+  useEffect(() => {
+    if (!supabaseOn) return;
+    let canceled = false;
+    const cargar = async () => {
+      setCargandoHist(true);
+      const { data, error } = await supabase
+        .from("cotizaciones")
+        .select("id,numero,fecha,estado,cliente_razon_social,proyecto_nombre,total_uf,subtotal_uf,iva_uf,data,updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (!canceled) {
+        if (error) setSyncStatus("offline");
+        else setHistorial(data || []);
+        setCargandoHist(false);
+      }
+    };
+    cargar();
+    const channel = supabase
+      .channel("cot-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cotizaciones" }, () => { cargar(); })
+      .subscribe();
+    return () => { canceled = true; try { supabase.removeChannel(channel); } catch(e) {} };
+  }, [supabaseOn]);
+
+  // Auto-guardar borrador
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cot));
+  }, [cot]);
+
+  const flash = (msg, type="ok") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  // ===== Edición de partidas (Ítem 2: Ejecución de los Trabajos) =====
+  const addPartida = (capitulo, item) => {
+    const id = Date.now() + Math.random();
+    setCot(c => ({
+      ...c,
+      item2_partidas: [...(c.item2_partidas || []), {
+        id, capitulo,
+        descripcion: item?.descripcion || "",
+        unidad:      item?.unidad      || "GL",
+        cantidad:    1,
+        precio_uf:   item?.precio_uf   || 0
+      }]
+    }));
+  };
+  const updatePartida = (id, patch) => {
+    setCot(c => ({ ...c, item2_partidas: (c.item2_partidas||[]).map(p => p.id === id ? { ...p, ...patch } : p) }));
+  };
+  const removePartida = (id) => {
+    setCot(c => ({ ...c, item2_partidas: (c.item2_partidas||[]).filter(p => p.id !== id) }));
+  };
+  const duplicarPartida = (id) => {
+    const orig = (cot.item2_partidas||[]).find(p => p.id === id);
+    if (!orig) return;
+    const nueva = { ...orig, id: Date.now() + Math.random() };
+    setCot(c => ({ ...c, item2_partidas: [...(c.item2_partidas||[]), nueva] }));
+  };
+  const moverPartida = (id, dir) => {
+    setCot(c => {
+      const arr = c.item2_partidas || [];
+      const idx = arr.findIndex(p => p.id === id);
+      if (idx < 0) return c;
+      const nuevo = [...arr];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= nuevo.length) return c;
+      [nuevo[idx], nuevo[swap]] = [nuevo[swap], nuevo[idx]];
+      return { ...c, item2_partidas: nuevo };
+    });
+  };
+
+  // Editor item1 (logística) y item3 (stand-by)
+  const updateItem1 = (id, patch) => setCot(c => ({ ...c, item1_partidas: (c.item1_partidas||[]).map(p => p.id===id?{...p,...patch}:p) }));
+  const updateItem3 = (id, patch) => setCot(c => ({ ...c, item3_partidas: (c.item3_partidas||[]).map(p => p.id===id?{...p,...patch}:p) }));
+
+  // ===== Totales =====
+  const totales = useMemo(() => {
+    const it1 = (cot.item1_partidas||[]).reduce((s,p) => s + (Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 0);
+    const it2 = (cot.item2_partidas||[]).reduce((s,p) => s + (Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 0);
+    const subtotal_uf = it1 + it2;  // item3 son eventuales, no entran en total
+    const iva_uf      = subtotal_uf * 0.19;
+    const total_uf    = subtotal_uf + iva_uf;
+    return { it1, it2, subtotal_uf, iva_uf, total_uf };
+  }, [cot.item1_partidas, cot.item2_partidas]);
+
+  // Agrupar partidas de item2 por capítulo (catálogo)
+  const partidasPorCapitulo = useMemo(() => {
+    const map = {};
+    (cot.item2_partidas||[]).forEach((p, idx) => {
+      const cap = p.capitulo || "Sin clasificar";
+      if (!map[cap]) map[cap] = [];
+      map[cap].push({ ...p, _idx: idx });
+    });
+    return map;
+  }, [cot.item2_partidas]);
+
+  // ===== Acciones =====
+  const nuevaCotizacion = () => {
+    if ((cot.item2_partidas||[]).length > 0 && !confirm("¿Descartar la cotización actual y comenzar una nueva?")) return;
+    setCot(COTIZACION_VACIA());
+    setCotId(null);
+    flash("Cotización en blanco creada");
+  };
+
+  const guardarEnHistorial = async () => {
+    if (!cot.cliente.razon_social || cot.cliente.razon_social.startsWith("[")) {
+      flash("Falta razón social del cliente", "err"); return;
+    }
+    if (!supabaseOn) {
+      // Fallback localStorage
+      const item = { ...cot, total_uf: totales.total_uf, guardada_en: new Date().toISOString() };
+      const nuevo = [item, ...historial.filter(h => h.numero !== cot.numero)].slice(0, 50);
+      setHistorial(nuevo);
+      try { localStorage.setItem("soil_cotizacion_historial", JSON.stringify(nuevo)); } catch(e) {}
+      flash("Guardado local (Supabase no configurado)"); return;
+    }
+    setSyncStatus("saving");
+    const payload = {
+      numero:              cot.numero,
+      fecha:               cot.fecha,
+      ciudad:              cot.ciudad,
+      validez:             cot.validez,
+      moneda:              cot.moneda,
+      cliente_razon_social: cot.cliente.razon_social,
+      cliente_rut:         cot.cliente.rut || null,
+      cliente_contacto:    cot.cliente.contacto || null,
+      cliente_email:       cot.cliente.email || null,
+      proyecto_nombre:     cot.proyecto.nombre || null,
+      proyecto_ubicacion:  cot.proyecto.ubicacion || null,
+      total_uf:    Number(totales.total_uf)    || 0,
+      subtotal_uf: Number(totales.subtotal_uf) || 0,
+      iva_uf:      Number(totales.iva_uf)      || 0,
+      data:        cot
+    };
+    let res;
+    if (cotId) {
+      res = await supabase.from("cotizaciones").update(payload).eq("id", cotId).select().single();
+    } else {
+      // Si ya existe una con el mismo número, hacemos upsert por numero
+      res = await supabase.from("cotizaciones").upsert(payload, { onConflict: "numero" }).select().single();
+    }
+    if (res.error) {
+      setSyncStatus("error");
+      flash("Error guardando: " + res.error.message, "err");
+      return;
+    }
+    if (res.data && res.data.id) setCotId(res.data.id);
+    setSyncStatus("saved");
+    flash("Cotización guardada en Supabase");
+    setTimeout(() => setSyncStatus("idle"), 2500);
+  };
+
+  const cargarDelHistorial = (item) => {
+    // item viene de Supabase con item.data conteniendo el modelo completo, o es estructura local
+    if (item && item.data && item.data.cliente) {
+      setCot(item.data);
+      setCotId(item.id || null);
+    } else {
+      setCot(item);
+      setCotId(null);
+    }
+    setShowHistorial(false);
+    flash("Cotización cargada");
+  };
+
+  const eliminarDelHistorial = async (item) => {
+    if (!confirm("¿Eliminar definitivamente esta cotización? Acción quedará en audit_log.")) return;
+    if (supabaseOn && item.id) {
+      const { error } = await supabase.from("cotizaciones").delete().eq("id", item.id);
+      if (error) { flash("Error eliminando: " + error.message, "err"); return; }
+      if (cotId === item.id) setCotId(null);
+      flash("Eliminada");
+    } else {
+      const nuevo = historial.filter(h => h.numero !== item.numero);
+      setHistorial(nuevo);
+      try { localStorage.setItem("soil_cotizacion_historial", JSON.stringify(nuevo)); } catch(e) {}
+    }
+  };
+
+  // ===== Exportación: PDF =====
+  const exportarPDF = async () => {
+    if (!printRef.current) return;
+    if (!window.html2pdf) { flash("Librería PDF no cargó. Refresca la página.", "err"); return; }
+    flash("Generando PDF...");
+    const opt = {
+      margin:       [12, 12, 14, 12],
+      filename:     `${cot.numero}_${(cot.cliente.razon_social || "Cliente").replace(/\s+/g,"_")}.pdf`,
+      image:        { type: "jpeg", quality: 0.95 },
+      html2canvas:  { scale: 2, useCORS: true, logging: false },
+      jsPDF:        { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak:    { mode: ["avoid-all", "css", "legacy"] }
+    };
+    try {
+      await window.html2pdf().set(opt).from(printRef.current).save();
+      flash("PDF descargado");
+    } catch (e) {
+      flash("Error generando PDF: " + e.message, "err");
+    }
+  };
+
+  // ===== Exportación: Word (HTML compatible) =====
+  const exportarWord = () => {
+    if (!printRef.current) { flash("Vista previa no disponible", "err"); return; }
+    flash("Generando Word...");
+    const contenidoHtml = printRef.current.innerHTML;
+    const html = `
+<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>${cot.numero}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>
+@page WordSection1 { size: 21cm 29.7cm; margin: 2cm 2cm 2cm 2cm; }
+div.WordSection1 { page: WordSection1; }
+body { font-family: "Calibri","Inter",sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.4; }
+h1,h2,h3 { font-family: "Calibri","Barlow Condensed",sans-serif; color: #0D2B5E; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { border: 1px solid #94a3b8; padding: 6px 8px; vertical-align: top; font-size: 10pt; }
+th { background: #0D2B5E; color: #fff; font-weight: 700; }
+.cap-row td { background: #fef2f2; color: #0D2B5E; font-weight: 700; }
+.totals-row td { background: #f1f5f9; font-weight: 700; }
+.brand-band { background: #0D2B5E; color: #fff; padding: 14px 16px; }
+.brand-band h1 { color: #fff; margin: 0 0 4px 0; font-size: 20pt; }
+.red-line { border-top: 3px solid #CC1414; margin: 6px 0 12px; }
+.muted { color: #64748b; font-size: 9pt; }
+.box { border: 1px solid #cbd5e1; padding: 10px 12px; margin: 6px 0; }
+</style>
+</head>
+<body><div class="WordSection1">${contenidoHtml}</div></body>
+</html>`;
+    const blob = new Blob(['﻿', html], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${cot.numero}_${(cot.cliente.razon_social || "Cliente").replace(/\s+/g,"_")}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    flash("Word descargado");
+  };
+
+  const totalClp = totales.total_uf * (ufClp || 38000);
+  const subtotalClp = totales.subtotal_uf * (ufClp || 38000);
+  const ivaClp = totales.iva_uf * (ufClp || 38000);
+
+  // ============= RENDER =============
+  return (
+    <div className="space-y-6">
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded shadow-lg border-l-4 text-sm font-medium
+          ${toast.type === "err" ? "bg-rose-50 border-rose-600 text-rose-900" : "bg-emerald-50 border-emerald-600 text-emerald-900"}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Header con acciones */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="display-font text-3xl font-black text-[#0D2B5E] tracking-tight">COTIZACIONES</h2>
+          <p className="text-sm text-slate-500">Crea, edita y exporta propuestas comerciales — formato Soil Limitada</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={nuevaCotizacion}
+            className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50 flex items-center gap-2">
+            <Icon name="plus" /> Nueva
+          </button>
+          <button onClick={() => setShowHistorial(true)}
+            className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50 flex items-center gap-2">
+            <Icon name="layers" /> Historial ({historial.length})
+          </button>
+          <button onClick={guardarEnHistorial}
+            disabled={syncStatus === "saving"}
+            className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-[#0D2B5E] text-[#0D2B5E] rounded hover:bg-blue-50 flex items-center gap-2 disabled:opacity-60">
+            <Icon name={syncStatus === "saving" ? "refresh" : "save"} className={syncStatus === "saving" ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
+            {syncStatus === "saving" ? "Guardando..." : syncStatus === "saved" ? "Guardado ✓" : "Guardar"}
+            {!supabaseOn && <span className="text-[9px] text-rose-600">(local)</span>}
+          </button>
+          <button onClick={exportarWord}
+            className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2">
+            <Icon name="fileWord" /> Word
+          </button>
+          <button onClick={exportarPDF}
+            className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-[#CC1414] text-white rounded hover:bg-rose-700 flex items-center gap-2">
+            <Icon name="filePdf" /> PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* === Columna izquierda: Editor === */}
+        <div className="lg:col-span-2 space-y-4">
+
+          {/* 1) Encabezado */}
+          <Seccion icon="fileText" title="Encabezado de la Cotización" defaultOpen={true}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <CotField label="N° Cotización" value={cot.numero}  onChange={v => setCot(c => ({ ...c, numero: v }))} />
+              <CotField label="Fecha"         value={cot.fecha}   onChange={v => setCot(c => ({ ...c, fecha: v, fecha_larga: v ? new Date(v + "T00:00").getDate() + " de " + meses_es[new Date(v + "T00:00").getMonth()] + " de " + new Date(v + "T00:00").getFullYear() : c.fecha_larga }))} type="date" />
+              <CotField label="Ciudad"        value={cot.ciudad}  onChange={v => setCot(c => ({ ...c, ciudad: v }))} />
+              <CotField label="Validez"       value={cot.validez} onChange={v => setCot(c => ({ ...c, validez: v }))} />
+            </div>
+          </Seccion>
+
+          {/* 2) Cliente */}
+          <Seccion icon="users" title="Datos del Cliente / Destinatario" defaultOpen={true}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <CotField label="Razón Social"  value={cot.cliente.razon_social} onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, razon_social: v } }))} />
+              <CotField label="RUT"           value={cot.cliente.rut}          onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, rut: v } }))} placeholder="76.xxx.xxx-x" />
+              <CotField label="Contacto"      value={cot.cliente.contacto}     onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, contacto: v } }))} />
+              <CotField label="Cargo"         value={cot.cliente.cargo}        onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, cargo: v } }))} />
+              <CotField label="Email"         value={cot.cliente.email}        onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, email: v } }))} />
+              <CotField label="Teléfono"      value={cot.cliente.telefono}     onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, telefono: v } }))} />
+            </div>
+          </Seccion>
+
+          {/* 3) Proyecto */}
+          <Seccion icon="briefcase" title="Datos del Proyecto" defaultOpen={true}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <CotField label="Nombre del Proyecto" value={cot.proyecto.nombre}    onChange={v => setCot(c => ({ ...c, proyecto: { ...c.proyecto, nombre: v } }))} />
+              <CotField label="Ubicación"           value={cot.proyecto.ubicacion} onChange={v => setCot(c => ({ ...c, proyecto: { ...c.proyecto, ubicacion: v } }))} />
+            </div>
+            <CotTextarea label="Referencia (breve descripción del alcance)" rows={2} value={cot.proyecto.referencia} onChange={v => setCot(c => ({ ...c, proyecto: { ...c.proyecto, referencia: v } }))} />
+            <CotTextarea label="Modalidad" rows={2} value={cot.proyecto.modalidad} onChange={v => setCot(c => ({ ...c, proyecto: { ...c.proyecto, modalidad: v } }))} />
+          </Seccion>
+
+          {/* 4) Saludo + Antecedentes */}
+          <Seccion icon="fileText" title="Saludo y Antecedentes">
+            <CotField    label="Saludo" value={cot.saludo} onChange={v => setCot(c => ({ ...c, saludo: v }))} />
+            <div className="h-3" />
+            <CotTextarea label="Introducción" rows={3} value={cot.intro} onChange={v => setCot(c => ({ ...c, intro: v }))} />
+            <div className="h-3" />
+            <ListaEditable label="Antecedentes (documentos parte de la cotización)" items={cot.antecedentes} onChange={arr => setCot(c => ({ ...c, antecedentes: arr }))} placeholder="Ej. Mecánica de Suelos – archivo.pdf" />
+          </Seccion>
+
+          {/* 5) A. Resumen y consideraciones */}
+          <Seccion icon="layers" title="A. Resumen y Consideraciones del Trabajo">
+            <CotTextarea label="Alcance general" rows={3} value={cot.alcance_general} onChange={v => setCot(c => ({ ...c, alcance_general: v }))} />
+            <div className="h-3" />
+            <ListaEditable label="Características técnicas y limitaciones" items={cot.caracteristicas} onChange={arr => setCot(c => ({ ...c, caracteristicas: arr }))} placeholder="Ej. Profundidad máxima 12,0 m" />
+            <div className="h-3" />
+            <CubicacionEditor cubicacion={cot.cubicacion} onChange={arr => setCot(c => ({ ...c, cubicacion: arr }))} />
+          </Seccion>
+
+          {/* 6) B. Propuesta económica — Item 1, 2, 3 */}
+          <Seccion icon="calculator" title="B. Propuesta Económica" defaultOpen={true}>
+
+            {/* Item 1: Logística */}
+            <div className="mb-4">
+              <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E] mb-2">Ítem 1: Logística, Movilización y Puesta en Marcha</div>
+              {(cot.item1_partidas || []).map(p => (
+                <div key={p.id} className="space-y-2 border border-slate-200 rounded p-3 bg-slate-50">
+                  <CotTextarea label={"Descripción " + p.item} rows={3} value={p.descripcion} onChange={v => updateItem1(p.id, { descripcion: v })} />
+                  <div className="grid grid-cols-3 gap-2">
+                    <CotField label="Unidad"     value={p.unidad}    onChange={v => updateItem1(p.id, { unidad: v })} />
+                    <CotField label="Cantidad"   value={p.cantidad}  onChange={v => updateItem1(p.id, { cantidad: Number(v) })} type="number" />
+                    <CotField label="P. Unit UF" value={p.precio_uf} onChange={v => updateItem1(p.id, { precio_uf: Number(v) })} type="number" />
+                  </div>
+                  <div className="text-right text-xs">Total: <strong className="text-[#0D2B5E]">{fmtNum((Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 2)} UF</strong></div>
+                </div>
+              ))}
+            </div>
+
+            {/* Item 2: Ejecución */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E]">Ítem 2: Ejecución de los Trabajos ({(cot.item2_partidas||[]).length})</div>
+                <button onClick={() => setShowCatalogo(true)}
+                  className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
+                  <Icon name="plus" className="w-3 h-3" /> Agregar partida
+                </button>
+              </div>
+              {(cot.item2_partidas||[]).length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs border border-dashed border-slate-300 rounded">
+                  Sin partidas en Ejecución — agrega desde catálogo
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(partidasPorCapitulo).map(([capitulo, items]) => (
+                    <div key={capitulo} className="border border-slate-200 rounded overflow-hidden">
+                      <div className="bg-rose-50 px-3 py-1.5 border-b border-slate-200">
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-[#0D2B5E]">{capitulo}</span>
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-100 text-slate-600">
+                          <tr>
+                            <th className="px-2 py-1 text-left font-semibold">Descripción</th>
+                            <th className="px-2 py-1 text-center font-semibold w-14">Un.</th>
+                            <th className="px-2 py-1 text-right font-semibold w-20">Cant.</th>
+                            <th className="px-2 py-1 text-right font-semibold w-24">P.U. UF</th>
+                            <th className="px-2 py-1 text-right font-semibold w-24">Total UF</th>
+                            <th className="px-2 py-1 w-24"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map(p => {
+                            const totalLinea = (Number(p.cantidad)||0) * (Number(p.precio_uf)||0);
+                            return (
+                              <tr key={p.id} className="border-t border-slate-200 hover:bg-slate-50">
+                                <td className="px-2 py-1"><input value={p.descripcion} onChange={e => updatePartida(p.id, { descripcion: e.target.value })} className="w-full bg-transparent text-xs focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+                                <td className="px-2 py-1"><input value={p.unidad} onChange={e => updatePartida(p.id, { unidad: e.target.value })} className="w-full bg-transparent text-xs text-center focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+                                <td className="px-2 py-1"><input type="number" step="0.01" value={p.cantidad} onChange={e => updatePartida(p.id, { cantidad: Number(e.target.value) })} className="w-full bg-transparent text-xs text-right focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+                                <td className="px-2 py-1"><input type="number" step="0.001" value={p.precio_uf} onChange={e => updatePartida(p.id, { precio_uf: Number(e.target.value) })} className="w-full bg-transparent text-xs text-right focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+                                <td className="px-2 py-1 text-right font-semibold text-[#0D2B5E]">{fmtNum(totalLinea, 2)}</td>
+                                <td className="px-2 py-1">
+                                  <div className="flex items-center justify-end gap-0.5">
+                                    <button onClick={() => moverPartida(p.id, -1)} className="p-0.5 text-slate-400 hover:text-[#0D2B5E]">▲</button>
+                                    <button onClick={() => moverPartida(p.id, 1)}  className="p-0.5 text-slate-400 hover:text-[#0D2B5E]">▼</button>
+                                    <button onClick={() => duplicarPartida(p.id)}  className="p-0.5 text-slate-400 hover:text-emerald-600"><Icon name="copy"  className="w-3 h-3" /></button>
+                                    <button onClick={() => removePartida(p.id)}    className="p-0.5 text-slate-400 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Item 3: Stand-by */}
+            <div>
+              <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E] mb-2">Ítem 3: Costos Eventuales (Stand-by)</div>
+              {(cot.item3_partidas || []).map(p => (
+                <div key={p.id} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-12 md:col-span-6">
+                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{p.item}</label>
+                    <input value={p.descripcion} onChange={e => updateItem3(p.id, { descripcion: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                  <div className="col-span-4 md:col-span-2">
+                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Unidad</label>
+                    <input value={p.unidad} onChange={e => updateItem3(p.id, { unidad: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                  <div className="col-span-4 md:col-span-2">
+                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Cantidad</label>
+                    <input value={p.cantidad_txt} onChange={e => updateItem3(p.id, { cantidad_txt: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                  <div className="col-span-4 md:col-span-2">
+                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">P.U. UF</label>
+                    <input type="number" step="0.01" value={p.precio_uf} onChange={e => updateItem3(p.id, { precio_uf: Number(e.target.value) })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E] mb-2">Descripción del alcance de los ítems</div>
+              <div className="space-y-2">
+                <CotTextarea label="Ítem 1.1" rows={3} value={cot.descripcion_alcance.item1_1}    onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item1_1: v } }))} />
+                <CotTextarea label="Ítem 2.1 a 2.6" rows={3} value={cot.descripcion_alcance.item2_1_6} onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item2_1_6: v } }))} />
+                <CotTextarea label="Ítem 2.7" rows={2} value={cot.descripcion_alcance.item2_7}    onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item2_7: v } }))} />
+                <CotTextarea label="Ítem 3" rows={3}   value={cot.descripcion_alcance.item3}      onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item3: v } }))} />
+              </div>
+            </div>
+          </Seccion>
+
+          {/* 7) C. Plazos */}
+          <Seccion icon="clock" title="C. Plazos y Programa de Trabajo">
+            <CotField    label="Plazo total estimado" value={cot.plazo_ejecucion.plazo_total} onChange={v => setCot(c => ({ ...c, plazo_ejecucion: { ...c.plazo_ejecucion, plazo_total: v } }))} />
+            <div className="h-3" />
+            <CotTextarea label="Definición primer día"  rows={2} value={cot.plazo_ejecucion.primer_dia} onChange={v => setCot(c => ({ ...c, plazo_ejecucion: { ...c.plazo_ejecucion, primer_dia: v } }))} />
+            <div className="h-2" />
+            <CotTextarea label="Definición último día"  rows={2} value={cot.plazo_ejecucion.ultimo_dia} onChange={v => setCot(c => ({ ...c, plazo_ejecucion: { ...c.plazo_ejecucion, ultimo_dia: v } }))} />
+            <div className="h-2" />
+            <CotTextarea label="No incluye"             rows={2} value={cot.plazo_ejecucion.no_incluye} onChange={v => setCot(c => ({ ...c, plazo_ejecucion: { ...c.plazo_ejecucion, no_incluye: v } }))} />
+            <div className="h-2" />
+            <CotTextarea label="Plazo de reacción"      rows={2} value={cot.plazo_ejecucion.reaccion}   onChange={v => setCot(c => ({ ...c, plazo_ejecucion: { ...c.plazo_ejecucion, reaccion: v } }))} />
+            <div className="h-3" />
+            <ListaEditable label="Turnos de trabajo"   items={cot.turnos}         onChange={arr => setCot(c => ({ ...c, turnos: arr }))} />
+            <div className="h-3" />
+            <ListaEditable label="Comunicaciones y control" items={cot.comunicaciones} onChange={arr => setCot(c => ({ ...c, comunicaciones: arr }))} />
+          </Seccion>
+
+          {/* 8) D. Stand-by */}
+          <Seccion icon="pause" title="D. Horas de Paralización (Stand-by)">
+            <CotTextarea label="Introducción" rows={3} value={cot.standby_intro} onChange={v => setCot(c => ({ ...c, standby_intro: v }))} />
+            <div className="h-3" />
+            <ListaEditable label="Causas que originan stand-by" items={cot.standby_causas} onChange={arr => setCot(c => ({ ...c, standby_causas: arr }))} />
+            <div className="h-3" />
+            <CotTextarea label="Cláusula de cierre" rows={4} value={cot.standby_cierre} onChange={v => setCot(c => ({ ...c, standby_cierre: v }))} />
+          </Seccion>
+
+          {/* 9) E. Alcances y condiciones */}
+          <Seccion icon="checkcircle" title="E. Alcances y Condiciones Generales">
+            <ListaEditable label="Aportes de Soil Ltda."    items={cot.aportes_soil}    onChange={arr => setCot(c => ({ ...c, aportes_soil: arr }))} />
+            <div className="h-3" />
+            <ListaEditable label="Aportes del Cliente"      items={cot.aportes_cliente} onChange={arr => setCot(c => ({ ...c, aportes_cliente: arr }))} />
+            <div className="h-3" />
+            <ListaEditable label="Generales"                items={cot.generales}       onChange={arr => setCot(c => ({ ...c, generales: arr }))} />
+          </Seccion>
+
+          {/* 10) F. Matriz */}
+          <Seccion icon="spreadsheet" title="F. Matriz de Responsabilidad">
+            <CotTextarea label="Texto introductorio" rows={2} value={cot.matriz_intro} onChange={v => setCot(c => ({ ...c, matriz_intro: v }))} />
+            <div className="h-3" />
+            <MatrizEditor matriz={cot.matriz} onChange={arr => setCot(c => ({ ...c, matriz: arr }))} />
+          </Seccion>
+
+          {/* 11) G. Aspectos comerciales */}
+          <Seccion icon="dollar" title="G. Aspectos Comerciales">
+            {Object.entries(cot.comercial).map(([k, v]) => (
+              <div key={k} className="mb-2">
+                <CotTextarea label={k.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase())} rows={3} value={v} onChange={nv => setCot(c => ({ ...c, comercial: { ...c.comercial, [k]: nv } }))} />
+              </div>
+            ))}
+          </Seccion>
+
+          {/* 12) Firmas */}
+          <Seccion icon="users" title="Firmas y Cierre">
+            <CotTextarea label="Texto de cierre" rows={3} value={cot.cierre_texto} onChange={v => setCot(c => ({ ...c, cierre_texto: v }))} />
+            <div className="h-3" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="border border-slate-200 rounded p-3 bg-slate-50">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Firma Izquierda</div>
+                <CotField    label="Nombre"  value={cot.firma_izq.nombre}  onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, nombre: v } }))} />
+                <div className="h-2" />
+                <CotField    label="Cargo"   value={cot.firma_izq.cargo}   onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, cargo: v } }))} />
+                <div className="h-2" />
+                <CotField    label="Empresa" value={cot.firma_izq.empresa} onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, empresa: v } }))} />
+              </div>
+              <div className="border border-slate-200 rounded p-3 bg-slate-50">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Firma Derecha</div>
+                <CotField    label="Nombre"  value={cot.firma_der.nombre}  onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, nombre: v } }))} />
+                <div className="h-2" />
+                <CotField    label="Cargo"   value={cot.firma_der.cargo}   onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, cargo: v } }))} />
+                <div className="h-2" />
+                <CotField    label="Empresa" value={cot.firma_der.empresa} onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, empresa: v } }))} />
+              </div>
+            </div>
+          </Seccion>
+
+        </div>
+
+        {/* === Columna derecha: Resumen y Vista Previa === */}
+        <div className="space-y-4">
+          {/* Totales */}
+          <div className="bg-gradient-to-br from-[#0D2B5E] to-[#1e3a8a] text-white rounded shadow-lg">
+            <div className="px-4 py-3 border-b border-blue-800 text-xs uppercase tracking-wider font-bold">
+              Totales
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs uppercase tracking-wider text-blue-200">Subtotal</span>
+                <div className="text-right">
+                  <div className="font-bold text-lg">{fmtNum(totales.subtotal_uf, 2)} UF</div>
+                  <div className="text-[10px] text-blue-300">${fmtNum(subtotalClp, 0)}</div>
+                </div>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs uppercase tracking-wider text-blue-200">IVA 19%</span>
+                <div className="text-right">
+                  <div className="font-medium">{fmtNum(totales.iva_uf, 2)} UF</div>
+                  <div className="text-[10px] text-blue-300">${fmtNum(ivaClp, 0)}</div>
+                </div>
+              </div>
+              <div className="border-t border-blue-700 pt-3 flex justify-between items-baseline">
+                <span className="text-xs uppercase tracking-wider font-bold text-white">Total</span>
+                <div className="text-right">
+                  <div className="font-black text-2xl text-white display-font">{fmtNum(totales.total_uf, 2)} <span className="text-sm">UF</span></div>
+                  <div className="text-[10px] text-blue-300">${fmtNum(totalClp, 0)} CLP</div>
+                </div>
+              </div>
+              <div className="pt-2 text-[10px] text-blue-300">
+                UF referencia: ${fmtNum(ufClp || 38000, 2)} · Datos del dashboard
+              </div>
+            </div>
+          </div>
+
+          {/* Resumen ejecutivo */}
+          <div className="bg-white border border-slate-200 rounded shadow-sm">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider font-bold text-slate-700">
+              Resumen por Capítulo
+            </div>
+            <div className="p-4 space-y-2 text-xs">
+              {Object.keys(partidasPorCapitulo).length === 0 ? (
+                <div className="text-slate-400 text-center py-2">Sin partidas aún</div>
+              ) : Object.entries(partidasPorCapitulo).map(([cap, items]) => {
+                const tot = items.reduce((s, i) => s + (Number(i.cantidad)||0) * (Number(i.precio_uf)||0), 0);
+                const pct = totales.subtotal_uf > 0 ? (tot / totales.subtotal_uf * 100) : 0;
+                return (
+                  <div key={cap}>
+                    <div className="flex justify-between mb-1">
+                      <span className="font-medium text-slate-700">{cap}</span>
+                      <span className="font-semibold text-[#0D2B5E]">{fmtNum(tot, 2)} UF</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded overflow-hidden">
+                      <div className="h-full bg-[#CC1414]" style={{ width: pct + "%" }}></div>
+                    </div>
+                    <div className="text-[10px] text-slate-400 text-right mt-0.5">{pct.toFixed(1)}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mini vista previa */}
+          <div className="bg-white border border-slate-200 rounded shadow-sm">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider font-bold text-slate-700">Vista previa</span>
+              <span className="text-[10px] text-slate-400">Se exporta a PDF/Word</span>
+            </div>
+            <div className="p-3 max-h-80 overflow-auto bg-slate-50">
+              <div className="origin-top-left bg-white shadow" style={{ transform: "scale(0.45)", width: "222%" }}>
+                <CotizacionPreview cot={cot} totales={totales} ufClp={ufClp} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Vista imprimible oculta (fuera de pantalla) — usada para exportar */}
+      <div style={{ position: "absolute", left: "-99999px", top: 0, width: "210mm" }}>
+        <div ref={printRef}>
+          <CotizacionPreview cot={cot} totales={totales} ufClp={ufClp} />
+        </div>
+      </div>
+
+      {/* Modal: Catálogo */}
+      {showCatalogo && (
+        <CatalogoModal
+          onClose={() => setShowCatalogo(false)}
+          onAdd={(cap, item) => addPartida(cap, item)}
+          onAddVacia={(cap) => addPartida(cap, null)}
+        />
+      )}
+
+      {/* Modal: Historial */}
+      {showHistorial && (
+        <HistorialModal
+          historial={historial}
+          cargando={cargandoHist}
+          supabaseOn={supabaseOn}
+          onClose={() => setShowHistorial(false)}
+          onLoad={cargarDelHistorial}
+          onDelete={eliminarDelHistorial}
+        />
+      )}
+    </div>
+  );
+}
+
+// ===== Campos auxiliares =====
+function CotField({ label, value, onChange, type="text", placeholder, options }) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
+      {options ? (
+        <select value={value} onChange={e => onChange(e.target.value)}
+          className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]">
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+          className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+      )}
+    </div>
+  );
+}
+
+function CotTextarea({ label, value, onChange, rows=3, placeholder }) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
+      <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows} placeholder={placeholder}
+        className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+    </div>
+  );
+}
+
+// ===== Helpers de editor =====
+function Seccion({ icon, title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="bg-white border border-slate-200 rounded shadow-sm">
+      <button onClick={() => setOpen(!open)}
+        className="w-full px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition">
+        <div className="flex items-center gap-2">
+          <Icon name={icon} className="w-4 h-4 text-[#0D2B5E]" />
+          <span className="text-xs uppercase tracking-wider font-bold text-slate-700">{title}</span>
+        </div>
+        <Icon name="chevron" className={"w-4 h-4 text-slate-500 transition-transform " + (open ? "" : "-rotate-90")} />
+      </button>
+      {open && <div className="p-4">{children}</div>}
+    </div>
+  );
+}
+
+function ListaEditable({ label, items, onChange, placeholder = "Nuevo ítem" }) {
+  const update = (i, v) => onChange(items.map((it, idx) => idx === i ? v : it));
+  const remove = (i) => onChange(items.filter((_, idx) => idx !== i));
+  const mover  = (i, dir) => {
+    const arr = [...items]; const sw = i + dir;
+    if (sw < 0 || sw >= arr.length) return;
+    [arr[i], arr[sw]] = [arr[sw], arr[i]]; onChange(arr);
+  };
+  const agregar = () => onChange([...items, ""]);
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
+      <div className="space-y-1.5">
+        {(items || []).map((it, i) => (
+          <div key={i} className="flex gap-1 items-start">
+            <span className="text-[10px] text-slate-400 mt-2 w-5 text-right">{i+1}.</span>
+            <textarea value={it} onChange={e => update(i, e.target.value)} rows={Math.max(1, Math.ceil((it||"").length/85))}
+              className="flex-1 text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+            <div className="flex flex-col gap-0.5">
+              <button onClick={() => mover(i, -1)} className="px-1 text-slate-400 hover:text-[#0D2B5E] text-[10px]">▲</button>
+              <button onClick={() => mover(i, 1)}  className="px-1 text-slate-400 hover:text-[#0D2B5E] text-[10px]">▼</button>
+            </div>
+            <button onClick={() => remove(i)} className="p-1 text-slate-400 hover:text-rose-600">
+              <Icon name="trash" className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+        <button onClick={agregar} className="text-[10px] uppercase tracking-wider font-semibold text-[#0D2B5E] hover:underline flex items-center gap-1">
+          <Icon name="plus" className="w-3 h-3" /> Agregar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CubicacionEditor({ cubicacion, onChange }) {
+  const update = (i, patch) => onChange(cubicacion.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+  const remove = (i) => onChange(cubicacion.filter((_, idx) => idx !== i));
+  const agregar = () => onChange([...cubicacion, { n: cubicacion.length + 1, descripcion: "", unidad: "GL", cantidad: "" }]);
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Cubicación base de los trabajos</label>
+      <table className="w-full text-xs border border-slate-200 rounded">
+        <thead className="bg-slate-100"><tr>
+          <th className="px-2 py-1 w-10 text-left">N°</th>
+          <th className="px-2 py-1 text-left">Descripción</th>
+          <th className="px-2 py-1 w-16 text-center">Unidad</th>
+          <th className="px-2 py-1 w-24 text-right">Cantidad</th>
+          <th className="px-2 py-1 w-10"></th>
+        </tr></thead>
+        <tbody>
+          {(cubicacion || []).map((it, i) => (
+            <tr key={i} className="border-t border-slate-200">
+              <td className="px-2 py-1"><input value={it.n} onChange={e => update(i, { n: e.target.value })} className="w-full bg-transparent text-xs focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+              <td className="px-2 py-1"><input value={it.descripcion} onChange={e => update(i, { descripcion: e.target.value })} className="w-full bg-transparent text-xs focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+              <td className="px-2 py-1"><input value={it.unidad} onChange={e => update(i, { unidad: e.target.value })} className="w-full bg-transparent text-xs text-center focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+              <td className="px-2 py-1"><input value={it.cantidad} onChange={e => update(i, { cantidad: e.target.value })} className="w-full bg-transparent text-xs text-right focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+              <td className="px-2 py-1"><button onClick={() => remove(i)} className="text-slate-400 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button onClick={agregar} className="mt-2 text-[10px] uppercase tracking-wider font-semibold text-[#0D2B5E] hover:underline flex items-center gap-1">
+        <Icon name="plus" className="w-3 h-3" /> Agregar fila
+      </button>
+    </div>
+  );
+}
+
+function MatrizEditor({ matriz, onChange }) {
+  const update = (i, patch) => onChange(matriz.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+  const remove = (i) => onChange(matriz.filter((_, idx) => idx !== i));
+  const toggle = (i, col) => update(i, { [col]: matriz[i][col] === "X" ? "" : "X" });
+  const agregar = () => onChange([...matriz, { desc: "", soil: "", cliente: "" }]);
+  return (
+    <div className="max-h-96 overflow-auto border border-slate-200 rounded">
+      <table className="w-full text-xs">
+        <thead className="bg-slate-100 sticky top-0"><tr>
+          <th className="px-2 py-1.5 text-left">Ítem / Descripción</th>
+          <th className="px-2 py-1.5 w-16 text-center">Soil</th>
+          <th className="px-2 py-1.5 w-16 text-center">Cliente</th>
+          <th className="px-2 py-1.5 w-10"></th>
+        </tr></thead>
+        <tbody>
+          {(matriz || []).map((it, i) => (
+            <tr key={i} className="border-t border-slate-200">
+              <td className="px-2 py-1"><input value={it.desc} onChange={e => update(i, { desc: e.target.value })} className="w-full bg-transparent text-xs focus:outline-none focus:bg-white focus:border focus:border-[#0D2B5E] rounded px-1" /></td>
+              <td className="px-2 py-1 text-center"><button onClick={() => toggle(i, "soil")} className={"w-6 h-6 rounded text-xs font-bold " + (it.soil === "X" ? "bg-[#0D2B5E] text-white" : "bg-slate-100 text-slate-300 hover:bg-slate-200")}>{it.soil === "X" ? "X" : "·"}</button></td>
+              <td className="px-2 py-1 text-center"><button onClick={() => toggle(i, "cliente")} className={"w-6 h-6 rounded text-xs font-bold " + (it.cliente === "X" ? "bg-[#CC1414] text-white" : "bg-slate-100 text-slate-300 hover:bg-slate-200")}>{it.cliente === "X" ? "X" : "·"}</button></td>
+              <td className="px-2 py-1"><button onClick={() => remove(i)} className="text-slate-400 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button onClick={agregar} className="m-2 text-[10px] uppercase tracking-wider font-semibold text-[#0D2B5E] hover:underline flex items-center gap-1">
+        <Icon name="plus" className="w-3 h-3" /> Agregar fila
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// VISTA IMPRIMIBLE — RÉPLICA EXACTA DE PLANTILLA SOIL OBRAS PREVIAS
+// ============================================================================
+function CotizacionPreview({ cot, totales, ufClp }) {
+  // Estilos compartidos
+  const C = {
+    azul: "#0D2B5E",
+    rojo: "#CC1414",
+    page: { width: "210mm", padding: "18mm 18mm 22mm 18mm", background: "#fff", fontFamily: "'Calibri','Inter',sans-serif", color: "#1f2937", fontSize: "10.5pt", lineHeight: 1.45 },
+    h1:   { fontFamily: "'Barlow Condensed','Calibri',sans-serif", fontWeight: 900, fontSize: "16pt", color: "#0D2B5E", margin: "18px 0 10px", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "2px solid #0D2B5E", paddingBottom: "4px" },
+    h2:   { fontFamily: "'Barlow Condensed','Calibri',sans-serif", fontWeight: 700, fontSize: "13pt", color: "#0D2B5E", margin: "14px 0 8px" },
+    h3:   { fontFamily: "'Calibri',sans-serif", fontWeight: 700, fontSize: "11pt", color: "#CC1414", margin: "10px 0 6px" },
+    th:   { padding: "6px 8px", textAlign: "left", border: "1px solid #94a3b8", background: "#0D2B5E", color: "#fff", fontWeight: 700, fontSize: "9.5pt" },
+    td:   { padding: "5px 8px", border: "1px solid #94a3b8", fontSize: "9.5pt", verticalAlign: "top" },
+    li:   { margin: "0 0 4px 18px", fontSize: "10pt" },
+    p:    { margin: "0 0 8px", textAlign: "justify" }
+  };
+
+  // Calcular cifras agregadas
+  const item1Total = (cot.item1_partidas||[]).reduce((s,p) => s + (Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 0);
+  const item2Total = (cot.item2_partidas||[]).reduce((s,p) => s + (Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 0);
+
+  return (
+    <div style={C.page}>
+
+      {/* ========== ENCABEZADO ========== */}
+      <div style={{ textAlign: "right", fontSize: "9pt", color: "#64748b", marginBottom: "4px" }}>
+        <strong style={{ color: C.azul }}>SOIL LTDA.</strong> — Obras Previas
+      </div>
+      <div style={{ borderTop: "3px solid " + C.rojo, marginBottom: "12px" }}></div>
+
+      <div style={{ textAlign: "center", marginBottom: "6px" }}>
+        <div style={{ fontFamily: "'Barlow Condensed','Calibri',sans-serif", fontWeight: 900, fontSize: "20pt", color: C.azul, letterSpacing: "0.04em" }}>
+          COTIZACIÓN N° {cot.numero}
+        </div>
+        <div style={{ fontSize: "10pt", color: "#475569", marginTop: "2px" }}>{cot.ciudad}, {cot.fecha_larga}</div>
+      </div>
+
+      {/* ========== TABLA DE DESTINATARIO ========== */}
+      <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0 16px", fontSize: "10pt" }}>
+        <tbody>
+          {[
+            ["Señores:",    cot.cliente.razon_social],
+            ["Atención:",   "Sr(a). " + (cot.cliente.contacto || "") + (cot.cliente.cargo ? "  —  " + cot.cliente.cargo : "")],
+            ["Correo:",     cot.cliente.email],
+            ["Teléfono:",   cot.cliente.telefono],
+            ["Proyecto:",   cot.proyecto.nombre],
+            ["Ubicación:",  cot.proyecto.ubicacion],
+            ["Referencia:", cot.proyecto.referencia],
+            ["Modalidad:",  cot.proyecto.modalidad]
+          ].map((r, i) => (
+            <tr key={i}>
+              <td style={{ ...C.td, width: "22%", fontWeight: 700, background: "#f1f5f9", color: C.azul }}>{r[0]}</td>
+              <td style={{ ...C.td }}>{r[1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ========== SALUDO + ANTECEDENTES ========== */}
+      <p style={C.p}><strong>{cot.saludo}</strong></p>
+      <p style={C.p}>{cot.intro}</p>
+      <p style={C.p}>Los documentos que forman parte íntegra de esta cotización son:</p>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.antecedentes.map((a, i) => (
+          <li key={i} style={C.li}>Antecedente {i+1}: {a}</li>
+        ))}
+      </ul>
+
+      {/* ========== A. RESUMEN Y CONSIDERACIONES ========== */}
+      <h2 style={C.h1}>A. Resumen y Consideraciones del Trabajo</h2>
+      <p style={C.p}><strong>Alcance general:</strong> {cot.alcance_general}</p>
+      <h3 style={C.h3}>Características técnicas y limitaciones del trabajo</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.caracteristicas.map((c, i) => <li key={i} style={C.li}>{c}</li>)}
+      </ul>
+
+      <h3 style={C.h3}>Cubicación base de los trabajos</h3>
+      <p style={C.p}>Sobre la base de los antecedentes recibidos, se ha cubicado lo siguiente:</p>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+        <thead><tr>
+          <th style={{ ...C.th, width: "8%", textAlign: "center" }}>N°</th>
+          <th style={C.th}>Descripción</th>
+          <th style={{ ...C.th, width: "10%", textAlign: "center" }}>Unidad</th>
+          <th style={{ ...C.th, width: "15%", textAlign: "right" }}>Cantidad</th>
+        </tr></thead>
+        <tbody>
+          {cot.cubicacion.map((c, i) => (
+            <tr key={i}>
+              <td style={{ ...C.td, textAlign: "center" }}>{c.n}</td>
+              <td style={C.td}>{c.descripcion}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>{c.unidad}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{c.cantidad}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ========== B. PROPUESTA ECONÓMICA ========== */}
+      <h2 style={C.h1}>B. Propuesta Económica</h2>
+      <p style={C.p}>Los valores se expresan en UF (Unidad de Fomento) y no incluyen IVA. La conversión a pesos chilenos se realizará al valor de la UF del día de emisión del estado de pago correspondiente.</p>
+
+      {/* Ítem 1 */}
+      <h3 style={C.h2}>Ítem 1: Logística, Movilización y Puesta en Marcha</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px" }}>
+        <thead><tr>
+          <th style={{ ...C.th, width: "6%", textAlign: "center" }}>Ítem</th>
+          <th style={C.th}>Descripción</th>
+          <th style={{ ...C.th, width: "8%", textAlign: "center" }}>Unidad</th>
+          <th style={{ ...C.th, width: "9%", textAlign: "right" }}>Cantidad</th>
+          <th style={{ ...C.th, width: "12%", textAlign: "right" }}>P. Unitario UF</th>
+          <th style={{ ...C.th, width: "12%", textAlign: "right" }}>Total UF</th>
+        </tr></thead>
+        <tbody>
+          {(cot.item1_partidas||[]).map(p => (
+            <tr key={p.id}>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.item}</td>
+              <td style={C.td}>{p.descripcion}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.unidad}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{fmtNum(p.cantidad, 2)}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{fmtNum(p.precio_uf, 2)}</td>
+              <td style={{ ...C.td, textAlign: "right", fontWeight: 600 }}>{fmtNum((Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 2)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td colSpan={5} style={{ ...C.td, textAlign: "right", background: "#f1f5f9", fontWeight: 700 }}>Subtotal Ítem 1</td>
+            <td style={{ ...C.td, textAlign: "right", background: "#f1f5f9", fontWeight: 700, color: C.azul }}>{fmtNum(item1Total, 2)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Ítem 2 */}
+      <h3 style={C.h2}>Ítem 2: Ejecución de los Trabajos</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px" }}>
+        <thead><tr>
+          <th style={{ ...C.th, width: "6%", textAlign: "center" }}>Ítem</th>
+          <th style={C.th}>Descripción</th>
+          <th style={{ ...C.th, width: "8%", textAlign: "center" }}>Unidad</th>
+          <th style={{ ...C.th, width: "9%", textAlign: "right" }}>Cantidad</th>
+          <th style={{ ...C.th, width: "12%", textAlign: "right" }}>P. Unitario UF</th>
+          <th style={{ ...C.th, width: "12%", textAlign: "right" }}>Total UF</th>
+        </tr></thead>
+        <tbody>
+          {(cot.item2_partidas||[]).length === 0 ? (
+            <tr><td colSpan={6} style={{ ...C.td, textAlign: "center", color: "#94a3b8" }}>Sin partidas — agrega desde catálogo</td></tr>
+          ) : (cot.item2_partidas||[]).map((p, i) => (
+            <tr key={p.id}>
+              <td style={{ ...C.td, textAlign: "center" }}>2.{i+1}</td>
+              <td style={C.td}>{p.descripcion}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.unidad}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{fmtNum(p.cantidad, 2)}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{fmtNum(p.precio_uf, 2)}</td>
+              <td style={{ ...C.td, textAlign: "right", fontWeight: 600 }}>{fmtNum((Number(p.cantidad)||0)*(Number(p.precio_uf)||0), 2)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td colSpan={5} style={{ ...C.td, textAlign: "right", background: "#f1f5f9", fontWeight: 700 }}>Subtotal Ítem 2</td>
+            <td style={{ ...C.td, textAlign: "right", background: "#f1f5f9", fontWeight: 700, color: C.azul }}>{fmtNum(item2Total, 2)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Ítem 3 — Stand-by */}
+      <h3 style={C.h2}>Ítem 3: Costos Eventuales — Precios Unitarios</h3>
+      <p style={C.p}>Los siguientes precios aplican únicamente ante eventos puntuales que generen detención de los trabajos por causas ajenas a Soil Ltda. (esperas de topografía, indefiniciones, falta de suministros del cliente, etc.). El control y registro se llevará en libro de obras.</p>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px" }}>
+        <thead><tr>
+          <th style={{ ...C.th, width: "6%", textAlign: "center" }}>Ítem</th>
+          <th style={C.th}>Descripción</th>
+          <th style={{ ...C.th, width: "8%", textAlign: "center" }}>Unidad</th>
+          <th style={{ ...C.th, width: "10%", textAlign: "center" }}>Cantidad</th>
+          <th style={{ ...C.th, width: "13%", textAlign: "right" }}>P. Unitario UF</th>
+          <th style={{ ...C.th, width: "10%", textAlign: "center" }}>Total UF</th>
+        </tr></thead>
+        <tbody>
+          {(cot.item3_partidas||[]).map(p => (
+            <tr key={p.id}>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.item}</td>
+              <td style={C.td}>{p.descripcion}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.unidad}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>{p.cantidad_txt}</td>
+              <td style={{ ...C.td, textAlign: "right" }}>{fmtNum(p.precio_uf, 2)}</td>
+              <td style={{ ...C.td, textAlign: "center" }}>—</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Resumen económico */}
+      <h3 style={C.h2}>Resumen Económico</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+        <tbody>
+          <tr>
+            <td style={{ ...C.td, width: "8%", textAlign: "center", fontWeight: 700 }}>I.</td>
+            <td style={C.td}>Logística y Puesta en Marcha (Ítem 1)</td>
+            <td style={{ ...C.td, textAlign: "right", width: "20%", fontWeight: 600 }}>UF {fmtNum(item1Total, 2)}</td>
+          </tr>
+          <tr>
+            <td style={{ ...C.td, textAlign: "center", fontWeight: 700 }}>II.</td>
+            <td style={C.td}>Ejecución de los Trabajos (Ítem 2)</td>
+            <td style={{ ...C.td, textAlign: "right", fontWeight: 600 }}>UF {fmtNum(item2Total, 2)}</td>
+          </tr>
+          <tr style={{ background: "#f1f5f9" }}>
+            <td style={{ ...C.td, textAlign: "center", fontWeight: 700 }}>III.</td>
+            <td style={{ ...C.td, fontWeight: 700 }}>SUBTOTAL NETO</td>
+            <td style={{ ...C.td, textAlign: "right", fontWeight: 700, color: C.azul }}>UF {fmtNum(totales.subtotal_uf, 2)}</td>
+          </tr>
+          <tr>
+            <td style={C.td}></td>
+            <td style={C.td}>IVA (19%)</td>
+            <td style={{ ...C.td, textAlign: "right" }}>UF {fmtNum(totales.iva_uf, 2)}</td>
+          </tr>
+          <tr style={{ background: C.azul, color: "#fff" }}>
+            <td style={{ ...C.td, textAlign: "center", fontWeight: 900, color: "#fff", border: "1px solid " + C.azul }}>IV.</td>
+            <td style={{ ...C.td, fontWeight: 900, color: "#fff", border: "1px solid " + C.azul, textTransform: "uppercase", letterSpacing: "0.05em" }}>TOTAL OFERTA</td>
+            <td style={{ ...C.td, textAlign: "right", fontWeight: 900, color: "#fff", fontSize: "11pt", border: "1px solid " + C.azul }}>UF {fmtNum(totales.total_uf, 2)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {ufClp && (
+        <div style={{ textAlign: "right", fontSize: "8.5pt", color: "#64748b", marginBottom: "12px" }}>
+          Referencia CLP (UF = ${fmtNum(ufClp, 2)}): <strong style={{ color: C.azul }}>${fmtNum(totales.total_uf * ufClp, 0)}</strong>
+        </div>
+      )}
+
+      {/* Descripción del alcance */}
+      <h3 style={C.h2}>Descripción del Alcance de los Ítems</h3>
+      <p style={C.p}>{cot.descripcion_alcance.item1_1}</p>
+      <p style={C.p}>{cot.descripcion_alcance.item2_1_6}</p>
+      <p style={C.p}>{cot.descripcion_alcance.item2_7}</p>
+      <p style={C.p}>{cot.descripcion_alcance.item3}</p>
+
+      {/* ========== C. PLAZOS ========== */}
+      <h2 style={C.h1}>C. Plazos y Programa de Trabajo</h2>
+      <h3 style={C.h3}>Plazo de ejecución</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        <li style={C.li}><strong>Plazo total estimado:</strong> {cot.plazo_ejecucion.plazo_total}</li>
+        <li style={C.li}>{cot.plazo_ejecucion.primer_dia}</li>
+        <li style={C.li}>{cot.plazo_ejecucion.ultimo_dia}</li>
+        <li style={C.li}>{cot.plazo_ejecucion.no_incluye}</li>
+        <li style={C.li}>{cot.plazo_ejecucion.reaccion}</li>
+      </ul>
+      <h3 style={C.h3}>Turnos de trabajo</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.turnos.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+      <h3 style={C.h3}>Comunicaciones y control de avance</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.comunicaciones.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+
+      {/* ========== D. STAND-BY ========== */}
+      <h2 style={C.h1}>D. Horas de Paralización (Stand-by)</h2>
+      <p style={C.p}>{cot.standby_intro}</p>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.standby_causas.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+      <p style={C.p}>{cot.standby_cierre}</p>
+
+      {/* ========== E. ALCANCES Y CONDICIONES ========== */}
+      <h2 style={C.h1}>E. Alcances y Condiciones Generales de Contratación</h2>
+      <h3 style={C.h3}>Aportes de Soil Ltda.</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.aportes_soil.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+      <h3 style={C.h3}>Aportes del Cliente</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.aportes_cliente.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+      <h3 style={C.h3}>Generales</h3>
+      <ul style={{ margin: "0 0 12px 0", paddingLeft: "0" }}>
+        {cot.generales.map((t, i) => <li key={i} style={C.li}>{t}</li>)}
+      </ul>
+
+      {/* ========== F. MATRIZ DE RESPONSABILIDAD ========== */}
+      <h2 style={C.h1}>F. Matriz de Responsabilidad</h2>
+      <p style={C.p}>{cot.matriz_intro}</p>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+        <thead><tr>
+          <th style={C.th}>Ítem / Descripción</th>
+          <th style={{ ...C.th, width: "15%", textAlign: "center" }}>Soil Ltda.</th>
+          <th style={{ ...C.th, width: "15%", textAlign: "center" }}>Cliente / Mandante</th>
+        </tr></thead>
+        <tbody>
+          {cot.matriz.map((r, i) => (
+            <tr key={i}>
+              <td style={C.td}>{r.desc}</td>
+              <td style={{ ...C.td, textAlign: "center", fontWeight: 700, color: C.azul }}>{r.soil}</td>
+              <td style={{ ...C.td, textAlign: "center", fontWeight: 700, color: C.rojo }}>{r.cliente}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ========== G. ASPECTOS COMERCIALES ========== */}
+      <h2 style={C.h1}>G. Aspectos Comerciales</h2>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+        <tbody>
+          {[
+            ["Modalidad",              cot.comercial.modalidad],
+            ["Anticipo",               cot.comercial.anticipo],
+            ["Estados de Pago",        cot.comercial.estados_pago],
+            ["Forma de Pago",          cot.comercial.forma_pago],
+            ["Logística (Ítem 1)",     cot.comercial.logistica],
+            ["Atrasos en los pagos",   cot.comercial.atrasos],
+            ["Retenciones",            cot.comercial.retenciones],
+            ["Boletas de Garantía",    cot.comercial.boletas],
+            ["Penalizaciones",         cot.comercial.penalizaciones],
+            ["Validez de la Oferta",   cot.comercial.validez],
+            ["Confidencialidad",       cot.comercial.confidencialidad],
+            ["Prelación documental",   cot.comercial.prelacion]
+          ].map((r, i) => (
+            <tr key={i}>
+              <td style={{ ...C.td, width: "25%", background: "#f1f5f9", fontWeight: 700, color: C.azul }}>{r[0]}</td>
+              <td style={C.td}>{r[1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ========== H. DATOS COMERCIALES ========== */}
+      <h2 style={C.h1}>H. Datos Comerciales para Orden de Compra</h2>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+        <tbody>
+          {[
+            ["Razón Social",       cot.datos_soil.razon_social],
+            ["Nombre de Fantasía", cot.datos_soil.fantasia],
+            ["RUT",                cot.datos_soil.rut],
+            ["Giro",               cot.datos_soil.giro],
+            ["Dirección",          cot.datos_soil.direccion],
+            ["Representante Legal",cot.datos_soil.representante],
+            ["Correo de contacto", cot.datos_soil.correo],
+            ["Correo gerencia",    cot.datos_soil.correo_ger],
+            ["Teléfono",           cot.datos_soil.telefono],
+            ["Sitio web",          cot.datos_soil.sitio]
+          ].map((r, i) => (
+            <tr key={i}>
+              <td style={{ ...C.td, width: "30%", background: "#f1f5f9", fontWeight: 700, color: C.azul }}>{r[0]}</td>
+              <td style={C.td}>{r[1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ========== CIERRE Y FIRMAS ========== */}
+      <p style={{ ...C.p, marginTop: "16px" }}>{cot.cierre_texto}</p>
+      <p style={C.p}>Atentamente,</p>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "40px", marginBottom: "20px" }}>
+        <tbody>
+          <tr>
+            <td style={{ width: "50%", padding: "0 12px 0 0", verticalAlign: "top", borderTop: "1px solid #64748b" }}>
+              <div style={{ fontWeight: 700, color: C.azul, fontSize: "10.5pt", marginTop: "6px" }}>{cot.firma_izq.nombre}</div>
+              <div style={{ fontSize: "9.5pt", color: "#475569" }}>{cot.firma_izq.cargo}</div>
+              <div style={{ fontSize: "9pt", color: "#64748b" }}>{cot.firma_izq.empresa}</div>
+            </td>
+            <td style={{ width: "50%", padding: "0 0 0 12px", verticalAlign: "top", borderTop: "1px solid #64748b" }}>
+              <div style={{ fontWeight: 700, color: C.azul, fontSize: "10.5pt", marginTop: "6px" }}>{cot.firma_der.nombre}</div>
+              <div style={{ fontSize: "9.5pt", color: "#475569" }}>{cot.firma_der.cargo}</div>
+              <div style={{ fontSize: "9pt", color: "#64748b" }}>{cot.firma_der.empresa}</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p style={{ ...C.p, marginTop: "12px", fontSize: "9.5pt" }}>{cot.ciudad}, {cot.fecha_larga}.</p>
+
+      {/* ========== PIE ========== */}
+      <div style={{ marginTop: "20px", paddingTop: "8px", borderTop: "2px solid " + C.rojo, fontSize: "8pt", color: "#64748b", textAlign: "center" }}>
+        Sociedad Constructora e Inversiones Soil Ltda.  |  Ramón Carrasco #231 Casa N°93, Lomas de Antilhue, Concepción  |  constructora@soilconstructora.cl  |  www.soilconstructora.cl
+      </div>
+    </div>
+  );
+}
+
+// ===== Modal: Catálogo de servicios =====
+function CatalogoModal({ onClose, onAdd, onAddVacia }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [capActivo, setCapActivo] = useState(Object.keys(CATALOGO_SERVICIOS)[0]);
+
+  const itemsFiltrados = useMemo(() => {
+    if (!busqueda) return CATALOGO_SERVICIOS[capActivo] || [];
+    const q = busqueda.toLowerCase();
+    return (CATALOGO_SERVICIOS[capActivo] || []).filter(i =>
+      i.descripcion.toLowerCase().includes(q) || i.unidad.toLowerCase().includes(q)
+    );
+  }, [busqueda, capActivo]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <div className="display-font text-xl font-black text-[#0D2B5E]">CATÁLOGO DE SERVICIOS</div>
+            <div className="text-xs text-slate-500">Precios referenciales editables — ajústalos según el proyecto</div>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-rose-600">
+            <Icon name="x" />
+          </button>
+        </div>
+
+        <div className="px-6 py-3 border-b border-slate-200 flex flex-wrap gap-2">
+          {Object.keys(CATALOGO_SERVICIOS).map(cap => (
+            <button key={cap} onClick={() => setCapActivo(cap)}
+              className={`px-3 py-1.5 text-xs uppercase tracking-wider font-semibold rounded transition
+                ${capActivo === cap ? "bg-[#0D2B5E] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              {cap}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-6 py-3 border-b border-slate-200">
+          <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar partida en este capítulo..."
+            className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+        </div>
+
+        <div className="flex-1 overflow-auto px-6 py-4">
+          <div className="space-y-2">
+            {itemsFiltrados.map((item, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-3 p-3 border border-slate-200 rounded hover:bg-slate-50 hover:border-[#0D2B5E] transition">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-slate-800">{item.descripcion}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    <span className="font-semibold">{item.unidad}</span> · referencia {fmtNum(item.precio_uf, 3)} UF/un
+                  </div>
+                </div>
+                <button onClick={() => { onAdd(capActivo, item); }}
+                  className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#CC1414] text-white rounded hover:bg-rose-700 flex items-center gap-1">
+                  <Icon name="plus" className="w-3 h-3" /> Agregar
+                </button>
+              </div>
+            ))}
+            {itemsFiltrados.length === 0 && (
+              <div className="text-center py-8 text-slate-400 text-sm">Sin resultados</div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <button onClick={() => { onAddVacia(capActivo); onClose(); }}
+            className="text-xs uppercase tracking-wider font-semibold text-[#0D2B5E] hover:underline flex items-center gap-1">
+            <Icon name="plus" className="w-3 h-3" /> Agregar partida vacia
+          </button>
+          <button onClick={onClose} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-100">Listo</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Modal: Historial =====
+function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDelete }) {
+  const [q, setQ] = useState("");
+  const filtrado = useMemo(() => {
+    if (!q) return historial;
+    const ql = q.toLowerCase();
+    return historial.filter(h => {
+      const cli  = h.cliente_razon_social || (h.cliente && h.cliente.razon_social) || "";
+      const proy = h.proyecto_nombre      || (h.proyecto && h.proyecto.nombre)     || "";
+      return (h.numero || "").toLowerCase().includes(ql) ||
+             cli.toLowerCase().includes(ql) ||
+             proy.toLowerCase().includes(ql);
+    });
+  }, [historial, q]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <div className="display-font text-xl font-black text-[#0D2B5E]">HISTORIAL DE COTIZACIONES</div>
+            <div className="text-xs text-slate-500">
+              {supabaseOn
+                ? ("Sincronizado con Supabase - " + historial.length + " registros" + (cargando ? " - cargando..." : ""))
+                : ("Local en este navegador - " + historial.length + " registros")}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-rose-600">
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="px-6 py-3 border-b border-slate-200">
+          <input value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Buscar por numero, cliente o proyecto..."
+            className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+        </div>
+        <div className="flex-1 overflow-auto px-6 py-4">
+          {filtrado.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-sm">
+              {historial.length === 0 ? "Sin cotizaciones guardadas aun" : "Sin resultados para tu busqueda"}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtrado.map((h, idx) => {
+                const cli  = h.cliente_razon_social || (h.cliente && h.cliente.razon_social) || "-";
+                const proy = h.proyecto_nombre      || (h.proyecto && h.proyecto.nombre)     || "";
+                const totalUf = Number(h.total_uf || 0);
+                const npart = (h.data && h.data.item2_partidas && h.data.item2_partidas.length) || (h.item2_partidas && h.item2_partidas.length) || 0;
+                const fechaTxt = h.updated_at ? new Date(h.updated_at).toLocaleString("es-CL")
+                  : h.guardada_en ? new Date(h.guardada_en).toLocaleString("es-CL")
+                  : h.fecha || "";
+                return (
+                  <div key={h.id || h.numero || idx} className="border border-slate-200 rounded p-3 hover:border-[#0D2B5E] transition">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono font-bold text-[#CC1414]">{h.numero}</span>
+                          <span className="text-xs text-slate-400">.</span>
+                          <span className="text-sm font-semibold text-slate-800 truncate">{cli}</span>
+                          {h.estado && (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold">{h.estado}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {proy} - {npart} partidas - <strong className="text-[#0D2B5E]">{fmtNum(totalUf, 2)} UF</strong>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Actualizada: {fechaTxt}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => onLoad(h)}
+                          className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900">
+                          Cargar
+                        </button>
+                        <button onClick={() => onDelete(h)}
+                          className="p-2 text-slate-400 hover:text-rose-600">
+                          <Icon name="trash" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // MOUNT
 // ============================================================================
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
 
-// Hide loader cuando React montó
 setTimeout(() => {
   const loader = document.getElementById("loader");
   if (loader) {

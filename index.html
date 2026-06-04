@@ -2195,6 +2195,33 @@ const CATALOGO_SERVICIOS = {
     { descripcion: "Tendido y conducción de aguas extraídas (HDPE Ø75)",                unidad: "ml",  precio_uf: 0.42 },
     { descripcion: "Monitoreo piezométrico y reporte mensual",                          unidad: "mes", precio_uf: 8.20 },
     { descripcion: "Mantención preventiva del sistema",                                 unidad: "mes", precio_uf: 6.50 }
+  ],
+  "Arriendos": [
+    { descripcion: "Arriendo retroexcavadora CAT 416 (jornada 8 h, sin operador)",      unidad: "día", precio_uf: 6.50 },
+    { descripcion: "Arriendo excavadora oruga 20 ton (jornada 8 h, con operador)",      unidad: "día", precio_uf: 14.00 },
+    { descripcion: "Arriendo minicargador Bobcat S70 (jornada 8 h)",                    unidad: "día", precio_uf: 5.20 },
+    { descripcion: "Arriendo camión tolva 12-14 m³ (con conductor, jornada)",           unidad: "día", precio_uf: 8.80 },
+    { descripcion: "Arriendo compresor 185 CFM + martillo neumático",                   unidad: "día", precio_uf: 4.20 },
+    { descripcion: "Arriendo generador eléctrico 100 KVA",                              unidad: "mes", precio_uf: 22.00 },
+    { descripcion: "Arriendo torre de iluminación LED diesel",                          unidad: "mes", precio_uf: 9.50 },
+    { descripcion: "Arriendo container oficina 20' habilitado",                         unidad: "mes", precio_uf: 8.00 }
+  ],
+  "Venta de Áridos": [
+    { descripcion: "Estabilizado CBR 80% (origen cantera local)",                       unidad: "m³",  precio_uf: 0.45 },
+    { descripcion: "Grava chancada Ø50 mm",                                             unidad: "m³",  precio_uf: 0.52 },
+    { descripcion: "Gravilla Ø20-25 mm",                                                unidad: "m³",  precio_uf: 0.58 },
+    { descripcion: "Arena gruesa para hormigón",                                        unidad: "m³",  precio_uf: 0.48 },
+    { descripcion: "Arena fina lavada",                                                 unidad: "m³",  precio_uf: 0.55 },
+    { descripcion: "Material de relleno seleccionado",                                  unidad: "m³",  precio_uf: 0.38 },
+    { descripcion: "Bolón de protección Ø100-300 mm",                                   unidad: "m³",  precio_uf: 0.62 }
+  ],
+  "Fletes y Transportes": [
+    { descripcion: "Flete cama baja (traslado maquinaria, hasta 80 km)",                unidad: "viaje", precio_uf: 12.00 },
+    { descripcion: "Flete camión tolva 12 m³ (hasta 30 km, ida y vuelta)",              unidad: "viaje", precio_uf: 2.80 },
+    { descripcion: "Flete camión tolva 14 m³ (hasta 30 km, ida y vuelta)",              unidad: "viaje", precio_uf: 3.20 },
+    { descripcion: "Transporte de material a botadero autorizado (hasta 15 km)",        unidad: "m³",    precio_uf: 0.42 },
+    { descripcion: "Flete urbano camión 3/4 (Concepción y alrededores)",                unidad: "viaje", precio_uf: 1.80 },
+    { descripcion: "Sobretiempo de transporte (hora extra)",                            unidad: "hora",  precio_uf: 0.95 }
   ]
 };
 
@@ -2530,6 +2557,12 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
   // Editor item1 (logística) y item3 (stand-by)
   const updateItem1 = (id, patch) => setCot(c => ({ ...c, item1_partidas: (c.item1_partidas||[]).map(p => p.id===id?{...p,...patch}:p) }));
   const updateItem3 = (id, patch) => setCot(c => ({ ...c, item3_partidas: (c.item3_partidas||[]).map(p => p.id===id?{...p,...patch}:p) }));
+  const removeItem3 = (id) => setCot(c => ({ ...c, item3_partidas: (c.item3_partidas||[]).filter(p => p.id !== id) }));
+  const addItem3 = () => setCot(c => {
+    const arr = c.item3_partidas || [];
+    const nuevoNumero = "3." + (arr.length + 1);
+    return { ...c, item3_partidas: [...arr, { id: Date.now() + Math.random(), item: nuevoNumero, descripcion: "", unidad: "Hora", cantidad_txt: "Eventual", precio_uf: 0 }] };
+  });
 
   // ===== Totales =====
   const totales = useMemo(() => {
@@ -2881,24 +2914,42 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
 
             {/* Item 3: Stand-by */}
             <div>
-              <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E] mb-2">Ítem 3: Costos Eventuales (Stand-by)</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E]">Ítem 3: Costos Eventuales (Stand-by)</div>
+                <button onClick={addItem3}
+                  className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
+                  <Icon name="plus" className="w-3 h-3" /> Nueva partida
+                </button>
+              </div>
+              {(cot.item3_partidas || []).length === 0 && (
+                <div className="text-center py-4 text-slate-400 text-xs border border-dashed border-slate-300 rounded">
+                  Sin partidas eventuales. Usa "Nueva partida" para agregar.
+                </div>
+              )}
               {(cot.item3_partidas || []).map(p => (
                 <div key={p.id} className="grid grid-cols-12 gap-2 mb-2 items-end">
-                  <div className="col-span-12 md:col-span-6">
+                  <div className="col-span-12 md:col-span-5">
                     <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{p.item}</label>
                     <input value={p.descripcion} onChange={e => updateItem3(p.id, { descripcion: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
                   </div>
-                  <div className="col-span-4 md:col-span-2">
+                  <div className="col-span-3 md:col-span-2">
                     <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Unidad</label>
                     <input value={p.unidad} onChange={e => updateItem3(p.id, { unidad: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
                   </div>
-                  <div className="col-span-4 md:col-span-2">
+                  <div className="col-span-3 md:col-span-2">
                     <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Cantidad</label>
                     <input value={p.cantidad_txt} onChange={e => updateItem3(p.id, { cantidad_txt: e.target.value })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
                   </div>
                   <div className="col-span-4 md:col-span-2">
                     <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">P.U. UF</label>
                     <input type="number" step="0.01" value={p.precio_uf} onChange={e => updateItem3(p.id, { precio_uf: Number(e.target.value) })} className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                  <div className="col-span-2 md:col-span-1 flex justify-end">
+                    <button onClick={() => { if (confirm("¿Eliminar esta partida del Ítem 3?")) removeItem3(p.id); }}
+                      className="p-2 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 rounded"
+                      title="Eliminar partida">
+                      <Icon name="trash" className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -2970,23 +3021,13 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
           <Seccion icon="users" title="Firmas y Cierre">
             <CotTextarea label="Texto de cierre" rows={3} value={cot.cierre_texto} onChange={v => setCot(c => ({ ...c, cierre_texto: v }))} />
             <div className="h-3" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="border border-slate-200 rounded p-3 bg-slate-50">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Firma Izquierda</div>
-                <CotField    label="Nombre"  value={cot.firma_izq.nombre}  onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, nombre: v } }))} />
-                <div className="h-2" />
-                <CotField    label="Cargo"   value={cot.firma_izq.cargo}   onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, cargo: v } }))} />
-                <div className="h-2" />
-                <CotField    label="Empresa" value={cot.firma_izq.empresa} onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, empresa: v } }))} />
-              </div>
-              <div className="border border-slate-200 rounded p-3 bg-slate-50">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Firma Derecha</div>
-                <CotField    label="Nombre"  value={cot.firma_der.nombre}  onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, nombre: v } }))} />
-                <div className="h-2" />
-                <CotField    label="Cargo"   value={cot.firma_der.cargo}   onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, cargo: v } }))} />
-                <div className="h-2" />
-                <CotField    label="Empresa" value={cot.firma_der.empresa} onChange={v => setCot(c => ({ ...c, firma_der: { ...c.firma_der, empresa: v } }))} />
-              </div>
+            <div className="border border-slate-200 rounded p-3 bg-slate-50 max-w-md">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Firma</div>
+              <CotField    label="Nombre"  value={cot.firma_izq.nombre}  onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, nombre: v } }))} />
+              <div className="h-2" />
+              <CotField    label="Cargo"   value={cot.firma_izq.cargo}   onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, cargo: v } }))} />
+              <div className="h-2" />
+              <CotField    label="Empresa" value={cot.firma_izq.empresa} onChange={v => setCot(c => ({ ...c, firma_izq: { ...c.firma_izq, empresa: v } }))} />
             </div>
           </Seccion>
 
@@ -3603,11 +3644,7 @@ function CotizacionPreview({ cot, totales, ufClp }) {
               <div style={{ fontSize: "9.5pt", color: "#475569" }}>{cot.firma_izq.cargo}</div>
               <div style={{ fontSize: "9pt", color: "#64748b" }}>{cot.firma_izq.empresa}</div>
             </td>
-            <td style={{ width: "50%", padding: "0 0 0 12px", verticalAlign: "top", borderTop: "1px solid #64748b" }}>
-              <div style={{ fontWeight: 700, color: C.azul, fontSize: "10.5pt", marginTop: "6px" }}>{cot.firma_der.nombre}</div>
-              <div style={{ fontSize: "9.5pt", color: "#475569" }}>{cot.firma_der.cargo}</div>
-              <div style={{ fontSize: "9pt", color: "#64748b" }}>{cot.firma_der.empresa}</div>
-            </td>
+            <td style={{ width: "50%" }}></td>
           </tr>
         </tbody>
       </table>
@@ -3622,18 +3659,85 @@ function CotizacionPreview({ cot, totales, ufClp }) {
   );
 }
 
-// ===== Modal: Catálogo de servicios =====
+// ===== Modal: Catálogo de servicios (editable + capítulos personalizados) =====
+const CATALOGO_CUSTOM_KEY = "soil_catalogo_custom";
+
 function CatalogoModal({ onClose, onAdd, onAddVacia }) {
+  // Catálogo personalizado del usuario, persistido en localStorage
+  const [catalogoCustom, setCatalogoCustom] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CATALOGO_CUSTOM_KEY) || "{}"); }
+    catch { return {}; }
+  });
+  const guardarCustom = (nuevo) => {
+    setCatalogoCustom(nuevo);
+    try { localStorage.setItem(CATALOGO_CUSTOM_KEY, JSON.stringify(nuevo)); } catch(e) {}
+  };
+
+  // Catálogo combinado: seed (read-only) + custom (editable)
+  const catalogoCompleto = useMemo(() => {
+    return { ...CATALOGO_SERVICIOS, ...catalogoCustom };
+  }, [catalogoCustom]);
+
   const [busqueda, setBusqueda] = useState("");
-  const [capActivo, setCapActivo] = useState(Object.keys(CATALOGO_SERVICIOS)[0]);
+  const [capActivo, setCapActivo] = useState(Object.keys(catalogoCompleto)[0]);
+  const [modoEditor, setModoEditor] = useState(null); // null | "newCap" | "newItem"
+  const [nuevoCap, setNuevoCap] = useState("");
+  const [nuevoItem, setNuevoItem] = useState({ descripcion: "", unidad: "GL", precio_uf: 0 });
+
+  const esCapCustom = !!catalogoCustom[capActivo];
+  const itemsCapActivo = catalogoCompleto[capActivo] || [];
 
   const itemsFiltrados = useMemo(() => {
-    if (!busqueda) return CATALOGO_SERVICIOS[capActivo] || [];
+    if (!busqueda) return itemsCapActivo;
     const q = busqueda.toLowerCase();
-    return (CATALOGO_SERVICIOS[capActivo] || []).filter(i =>
-      i.descripcion.toLowerCase().includes(q) || i.unidad.toLowerCase().includes(q)
+    return itemsCapActivo.filter(i =>
+      (i.descripcion || "").toLowerCase().includes(q) || (i.unidad || "").toLowerCase().includes(q)
     );
-  }, [busqueda, capActivo]);
+  }, [busqueda, itemsCapActivo]);
+
+  // Crear nuevo capítulo
+  const crearCapitulo = () => {
+    const nombre = (nuevoCap || "").trim();
+    if (!nombre) return;
+    if (catalogoCompleto[nombre]) { alert("Ya existe un capítulo con ese nombre"); return; }
+    const nuevo = { ...catalogoCustom, [nombre]: [] };
+    guardarCustom(nuevo);
+    setCapActivo(nombre);
+    setNuevoCap("");
+    setModoEditor(null);
+  };
+
+  // Eliminar capítulo personalizado
+  const eliminarCapitulo = () => {
+    if (!esCapCustom) { alert("No se puede eliminar un capítulo predefinido"); return; }
+    if (!confirm("¿Eliminar el capítulo \"" + capActivo + "\" y todas sus partidas personalizadas?")) return;
+    const nuevo = { ...catalogoCustom };
+    delete nuevo[capActivo];
+    guardarCustom(nuevo);
+    setCapActivo(Object.keys({ ...CATALOGO_SERVICIOS, ...nuevo })[0]);
+  };
+
+  // Agregar partida al capítulo custom activo
+  const agregarItemAlCapitulo = () => {
+    if (!esCapCustom) { alert("Solo se pueden agregar partidas a capítulos personalizados"); return; }
+    if (!nuevoItem.descripcion.trim()) return;
+    const nuevo = {
+      ...catalogoCustom,
+      [capActivo]: [...(catalogoCustom[capActivo] || []), { ...nuevoItem, precio_uf: Number(nuevoItem.precio_uf) || 0 }]
+    };
+    guardarCustom(nuevo);
+    setNuevoItem({ descripcion: "", unidad: "GL", precio_uf: 0 });
+    setModoEditor(null);
+  };
+
+  // Eliminar partida custom
+  const eliminarItem = (idx) => {
+    if (!esCapCustom) return;
+    if (!confirm("¿Eliminar esta partida del capítulo?")) return;
+    const arr = [...(catalogoCustom[capActivo] || [])];
+    arr.splice(idx, 1);
+    guardarCustom({ ...catalogoCustom, [capActivo]: arr });
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -3648,15 +3752,46 @@ function CatalogoModal({ onClose, onAdd, onAddVacia }) {
           </button>
         </div>
 
-        <div className="px-6 py-3 border-b border-slate-200 flex flex-wrap gap-2">
-          {Object.keys(CATALOGO_SERVICIOS).map(cap => (
-            <button key={cap} onClick={() => setCapActivo(cap)}
-              className={`px-3 py-1.5 text-xs uppercase tracking-wider font-semibold rounded transition
-                ${capActivo === cap ? "bg-[#0D2B5E] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-              {cap}
+        <div className="px-6 py-3 border-b border-slate-200 flex flex-wrap gap-2 items-center">
+          {Object.keys(catalogoCompleto).map(cap => {
+            const isCustom = !!catalogoCustom[cap];
+            return (
+              <button key={cap} onClick={() => { setCapActivo(cap); setModoEditor(null); }}
+                className={"px-3 py-1.5 text-xs uppercase tracking-wider font-semibold rounded transition flex items-center gap-1 " +
+                  (capActivo === cap ? "bg-[#0D2B5E] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+                {cap}
+                {isCustom && <span className={"text-[8px] px-1 rounded " + (capActivo === cap ? "bg-blue-900 text-blue-200" : "bg-amber-100 text-amber-700")}>MÍO</span>}
+              </button>
+            );
+          })}
+          <button onClick={() => { setModoEditor(modoEditor === "newCap" ? null : "newCap"); }}
+            className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold rounded transition bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1">
+            <Icon name="plus" className="w-3 h-3" /> Nuevo capítulo
+          </button>
+          {esCapCustom && (
+            <button onClick={eliminarCapitulo}
+              className="px-2 py-1.5 text-xs uppercase tracking-wider font-semibold rounded transition bg-white border border-rose-300 text-rose-600 hover:bg-rose-50 flex items-center gap-1"
+              title="Eliminar capítulo personalizado">
+              <Icon name="trash" className="w-3 h-3" />
             </button>
-          ))}
+          )}
         </div>
+
+        {modoEditor === "newCap" && (
+          <div className="px-6 py-3 border-b border-slate-200 bg-emerald-50 flex items-center gap-2">
+            <input value={nuevoCap} onChange={e => setNuevoCap(e.target.value)}
+              placeholder="Nombre del nuevo capítulo (ej. Hormigones, Demoliciones, Topografía...)"
+              className="flex-1 text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+            <button onClick={crearCapitulo}
+              className="px-3 py-2 text-xs uppercase tracking-wider font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700">
+              Crear
+            </button>
+            <button onClick={() => { setModoEditor(null); setNuevoCap(""); }}
+              className="px-3 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50">
+              Cancelar
+            </button>
+          </div>
+        )}
 
         <div className="px-6 py-3 border-b border-slate-200">
           <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
@@ -3674,14 +3809,64 @@ function CatalogoModal({ onClose, onAdd, onAddVacia }) {
                     <span className="font-semibold">{item.unidad}</span> · referencia {fmtNum(item.precio_uf, 3)} UF/un
                   </div>
                 </div>
-                <button onClick={() => { onAdd(capActivo, item); }}
-                  className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#CC1414] text-white rounded hover:bg-rose-700 flex items-center gap-1">
-                  <Icon name="plus" className="w-3 h-3" /> Agregar
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { onAdd(capActivo, item); }}
+                    className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#CC1414] text-white rounded hover:bg-rose-700 flex items-center gap-1">
+                    <Icon name="plus" className="w-3 h-3" /> Agregar
+                  </button>
+                  {esCapCustom && (
+                    <button onClick={() => eliminarItem(idx)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 rounded"
+                      title="Eliminar partida del catálogo personalizado">
+                      <Icon name="trash" className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             {itemsFiltrados.length === 0 && (
-              <div className="text-center py-8 text-slate-400 text-sm">Sin resultados</div>
+              <div className="text-center py-8 text-slate-400 text-sm">
+                {esCapCustom ? "Capítulo vacío — agrega tu primera partida abajo" : "Sin resultados"}
+              </div>
+            )}
+
+            {esCapCustom && (
+              <div className="mt-3 pt-3 border-t border-dashed border-slate-300">
+                {modoEditor === "newItem" ? (
+                  <div className="p-3 bg-emerald-50 rounded border border-emerald-200 space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700">Nueva partida en "{capActivo}"</div>
+                    <input value={nuevoItem.descripcion}
+                      onChange={e => setNuevoItem({ ...nuevoItem, descripcion: e.target.value })}
+                      placeholder="Descripción de la partida"
+                      className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={nuevoItem.unidad}
+                        onChange={e => setNuevoItem({ ...nuevoItem, unidad: e.target.value })}
+                        placeholder="Unidad (m³, ml, gl...)"
+                        className="text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+                      <input type="number" step="0.001" value={nuevoItem.precio_uf}
+                        onChange={e => setNuevoItem({ ...nuevoItem, precio_uf: e.target.value })}
+                        placeholder="Precio referencial en UF"
+                        className="text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={agregarItemAlCapitulo}
+                        className="px-3 py-2 text-xs uppercase tracking-wider font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700">
+                        Guardar partida
+                      </button>
+                      <button onClick={() => { setModoEditor(null); setNuevoItem({ descripcion: "", unidad: "GL", precio_uf: 0 }); }}
+                        className="px-3 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setModoEditor("newItem")}
+                    className="w-full px-3 py-2 text-xs uppercase tracking-wider font-semibold bg-emerald-50 text-emerald-700 border border-dashed border-emerald-400 rounded hover:bg-emerald-100 flex items-center justify-center gap-1">
+                    <Icon name="plus" className="w-3 h-3" /> Agregar partida a este capítulo
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

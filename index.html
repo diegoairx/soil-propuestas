@@ -2296,13 +2296,13 @@ const COTIZACION_VACIA = () => ({
     { id: 4, item: "3.4", descripcion: "Sobreconsumo de cemento sobre estimado de [XX] kg/ml",        unidad: "Litro",cantidad_txt: "Eventual", precio_uf: 0 }
   ],
 
-  // Descripción del alcance de los ítems
-  descripcion_alcance: {
-    item1_1: "Ítem 1.1: Comprende los costos de movilización ida–vuelta de equipos, personal y materiales hacia y desde la obra; armado, desarme y puesta en marcha de la maquinaria; periodo de acreditación y charlas de inducción del personal Soil en obra (1 día máximo).",
-    item2_1_6: "Ítem 2.1 a 2.6: Considera mano de obra calificada, supervisión, equipos especializados, consumibles, provisión de materiales y ejecución de los elementos de sostenimiento según planos e ingeniería entregada. Las vigas longuerinas son de propiedad de Soil Ltda.",
-    item2_7: "Ítem 2.7: Excavación masiva con taludes 1:1, medida en volumen geométrico. Soil deja sello con tolerancia de ±10 cm — el sello fino es responsabilidad del mandante.",
-    item3:   "Ítem 3.1 a 3.4: Costos eventuales que se aplicarán únicamente cuando ocurran detenciones por causas ajenas a Soil Ltda., con registro diario en libro de obras firmado por la ITO y/o el mandante."
-  },
+  // Descripción del alcance de los ítems (array editable: usuario puede agregar/eliminar)
+  descripcion_alcance: [
+    { titulo: "Ítem 1.1",        texto: "Comprende los costos de movilización ida–vuelta de equipos, personal y materiales hacia y desde la obra; armado, desarme y puesta en marcha de la maquinaria; periodo de acreditación y charlas de inducción del personal Soil en obra (1 día máximo)." },
+    { titulo: "Ítem 2.1 a 2.6",  texto: "Considera mano de obra calificada, supervisión, equipos especializados, consumibles, provisión de materiales y ejecución de los elementos de sostenimiento según planos e ingeniería entregada. Las vigas longuerinas son de propiedad de Soil Ltda." },
+    { titulo: "Ítem 2.7",        texto: "Excavación masiva con taludes 1:1, medida en volumen geométrico. Soil deja sello con tolerancia de ±10 cm — el sello fino es responsabilidad del mandante." },
+    { titulo: "Ítem 3.1 a 3.4",  texto: "Costos eventuales que se aplicarán únicamente cuando ocurran detenciones por causas ajenas a Soil Ltda., con registro diario en libro de obras firmado por la ITO y/o el mandante." }
+  ],
 
   // C. PLAZOS Y PROGRAMA DE TRABAJO
   plazo_ejecucion: {
@@ -2314,7 +2314,7 @@ const COTIZACION_VACIA = () => ({
   },
   turnos: [
     "Modalidad: Jornada 5x2 (lunes a viernes), cumpliendo normativa legal vigente.",
-    "Horario: lunes a jueves de 08:00 a 18:00 con 1 hora de colación; viernes de 08:00 a 17:00 con 1 hora de colación.",
+    "Horario: lunes, martes y viernes de 08:00 a 18:00 con 1 hora de colación; miércoles y jueves de 08:00 a 17:00 con 1 hora de colación.",
     "Descansos: sábados, domingos y festivos.",
     "Cualquier modalidad distinta (turnos extendidos, horas extra, jornadas excepcionales) requiere evaluación previa y reformulación de la oferta."
   ],
@@ -2464,6 +2464,16 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (!parsed.item2_partidas) return COTIZACION_VACIA();
+        // Migración v7 → v7.2: descripcion_alcance pasó de objeto a array
+        if (parsed.descripcion_alcance && !Array.isArray(parsed.descripcion_alcance)) {
+          const o = parsed.descripcion_alcance;
+          parsed.descripcion_alcance = [
+            { titulo: "Ítem 1.1",       texto: (o.item1_1   || "").replace(/^Ítem 1\.1:\s*/, "") },
+            { titulo: "Ítem 2.1 a 2.6", texto: (o.item2_1_6 || "").replace(/^Ítem 2\.1 a 2\.6:\s*/, "") },
+            { titulo: "Ítem 2.7",       texto: (o.item2_7   || "").replace(/^Ítem 2\.7:\s*/, "") },
+            { titulo: "Ítem 3.1 a 3.4", texto: (o.item3     || "").replace(/^Ítem 3\.1 a 3\.4:\s*/, "") }
+          ].filter(d => d.texto);
+        }
         return parsed;
       }
       return COTIZACION_VACIA();
@@ -2956,12 +2966,38 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
             </div>
 
             <div className="mt-4 pt-4 border-t border-slate-200">
-              <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E] mb-2">Descripción del alcance de los ítems</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E]">Descripción del alcance de los ítems</div>
+                <button onClick={() => setCot(c => ({ ...c, descripcion_alcance: [...(Array.isArray(c.descripcion_alcance)?c.descripcion_alcance:[]), { titulo: "Ítem nuevo", texto: "" }] }))}
+                  className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
+                  <Icon name="plus" className="w-3 h-3" /> Nueva descripción
+                </button>
+              </div>
               <div className="space-y-2">
-                <CotTextarea label="Ítem 1.1" rows={3} value={cot.descripcion_alcance.item1_1}    onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item1_1: v } }))} />
-                <CotTextarea label="Ítem 2.1 a 2.6" rows={3} value={cot.descripcion_alcance.item2_1_6} onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item2_1_6: v } }))} />
-                <CotTextarea label="Ítem 2.7" rows={2} value={cot.descripcion_alcance.item2_7}    onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item2_7: v } }))} />
-                <CotTextarea label="Ítem 3" rows={3}   value={cot.descripcion_alcance.item3}      onChange={v => setCot(c => ({ ...c, descripcion_alcance: { ...c.descripcion_alcance, item3: v } }))} />
+                {(Array.isArray(cot.descripcion_alcance) ? cot.descripcion_alcance : []).map((d, i) => (
+                  <div key={i} className="border border-slate-200 rounded p-3 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input value={d.titulo}
+                        onChange={e => setCot(c => ({ ...c, descripcion_alcance: c.descripcion_alcance.map((x, idx) => idx === i ? { ...x, titulo: e.target.value } : x) }))}
+                        placeholder="Título (ej. Ítem 1.1)"
+                        className="flex-1 text-xs font-semibold text-[#0D2B5E] bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-[#0D2B5E]" />
+                      <button onClick={() => { if (confirm("¿Eliminar esta descripción?")) setCot(c => ({ ...c, descripcion_alcance: c.descripcion_alcance.filter((_, idx) => idx !== i) })); }}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 rounded"
+                        title="Eliminar descripción">
+                        <Icon name="trash" className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <textarea value={d.texto} rows={3}
+                      onChange={e => setCot(c => ({ ...c, descripcion_alcance: c.descripcion_alcance.map((x, idx) => idx === i ? { ...x, texto: e.target.value } : x) }))}
+                      placeholder="Texto descriptivo del alcance del ítem"
+                      className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+                  </div>
+                ))}
+                {(Array.isArray(cot.descripcion_alcance) ? cot.descripcion_alcance : []).length === 0 && (
+                  <div className="text-center py-4 text-slate-400 text-xs border border-dashed border-slate-300 rounded">
+                    Sin descripciones — usa "Nueva descripción" para agregar
+                  </div>
+                )}
               </div>
             </div>
           </Seccion>
@@ -3515,10 +3551,9 @@ function CotizacionPreview({ cot, totales, ufClp }) {
 
       {/* Descripción del alcance */}
       <h3 style={C.h2}>Descripción del Alcance de los Ítems</h3>
-      <p style={C.p}>{cot.descripcion_alcance.item1_1}</p>
-      <p style={C.p}>{cot.descripcion_alcance.item2_1_6}</p>
-      <p style={C.p}>{cot.descripcion_alcance.item2_7}</p>
-      <p style={C.p}>{cot.descripcion_alcance.item3}</p>
+      {(Array.isArray(cot.descripcion_alcance) ? cot.descripcion_alcance : []).map((d, i) => (
+        <p key={i} style={C.p}><strong>{d.titulo}:</strong> {d.texto}</p>
+      ))}
 
       {/* ========== C. PLAZOS ========== */}
       <h2 style={C.h1}>C. Plazos y Programa de Trabajo</h2>

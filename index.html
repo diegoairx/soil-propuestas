@@ -22,7 +22,7 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
 <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@babel/[email protected]/babel.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js';"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js"></script>
 
 <!-- Exportación PDF para Cotizaciones -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -74,13 +74,15 @@ const {
 const SUPABASE_URL      = "https://dorshinrvqppaxvzskor.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvcnNoaW5ydnFwcGF4dnpza29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MDMxMzgsImV4cCI6MjA5MzQ3OTEzOH0.zXYUEdUwfovCOXnB0SGFYEk-xqOCZqPKwZwGN0t0L9w";
 
-// Cliente Supabase global (creado solo si las credenciales fueron reemplazadas)
+// Cliente Supabase global — renombrado a "db" para no colisionar con window.supabase de la lib UMD
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("PEGA_AQUÍ") && !SUPABASE_ANON_KEY.includes("PEGA_AQUÍ");
-const supabase = SUPABASE_CONFIGURED
+const db = SUPABASE_CONFIGURED
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true }
     })
   : null;
+// Alias para compatibilidad
+const supabaseDb = db;
 
 // ============================================================================
 // ICONOS (SVG inline estilo Lucide)
@@ -465,11 +467,11 @@ function LoginScreen() {
     setError(null);
     setLoading(true);
     if (mode === "signin") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await db.auth.signInWithPassword({ email, password });
       if (error) setError(error.message);
     } else {
       // Reset password: enviar magic link de recuperación
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await db.auth.resetPasswordForEmail(email, {
         redirectTo: window.location.origin
       });
       if (error) setError(error.message);
@@ -599,11 +601,11 @@ function App() {
       setDataLoading(false);
       return;
     }
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    db.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = db.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
     return () => listener.subscription.unsubscribe();
@@ -615,7 +617,7 @@ function App() {
     let cancelled = false;
     setDataLoading(true);
     (async () => {
-      const { data: rows, error } = await supabase
+      const { data: rows, error } = await db
         .from("propuestas").select("*").order("updated_at", { ascending: false });
       if (cancelled) return;
       if (error) {
@@ -635,7 +637,7 @@ function App() {
         setData(normalized);
         setSyncStatus("synced");
       }
-      const { data: cfg } = await supabase.from("config").select("*").eq("clave", "uf_clp").maybeSingle();
+      const { data: cfg } = await db.from("config").select("*").eq("clave", "uf_clp").maybeSingle();
       if (cfg && !cancelled) setUfClp(parseInt(cfg.valor) || DEFAULT_UF_CLP);
       setDataLoading(false);
     })();
@@ -645,7 +647,7 @@ function App() {
   // -------- Realtime: cuando otro usuario edita, actualizamos en vivo --------
   useEffect(() => {
     if (isOffline || !session) return;
-    const channel = supabase
+    const channel = db
       .channel("propuestas-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "propuestas" }, (payload) => {
         if (payload.eventType === "INSERT" && payload.new) {
@@ -674,7 +676,7 @@ function App() {
         }
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { db.removeChannel(channel); };
   }, [session]);
 
   // -------- Persistencia offline --------
@@ -864,7 +866,7 @@ function App() {
     if ("monto" in dbPatch) { dbPatch.monto_uf = dbPatch.monto; delete dbPatch.monto; }
     if ("notas_db" in dbPatch) { dbPatch.notas = dbPatch.notas_db; delete dbPatch.notas_db; }
     delete dbPatch.id;
-    const { error } = await supabase.from("propuestas").update(dbPatch).eq("id", id);
+    const { error } = await db.from("propuestas").update(dbPatch).eq("id", id);
     if (error) { console.error(error); alert("Error al actualizar: " + error.message); setSyncStatus("error"); }
     else setSyncStatus("synced");
   };
@@ -876,7 +878,7 @@ function App() {
       return;
     }
     setSyncStatus("syncing");
-    const { error } = await supabase.from("propuestas").delete().eq("id", id);
+    const { error } = await db.from("propuestas").delete().eq("id", id);
     if (error) { alert("Error al eliminar: " + error.message); setSyncStatus("error"); }
     else setSyncStatus("synced");
   };
@@ -894,7 +896,7 @@ function App() {
       status: row.status, servicios: row.servicios, ultimo_contacto: row.ultimo_contacto,
       notas: row.notas_db || ""
     };
-    const { error } = await supabase.from("propuestas").insert([dbRow]);
+    const { error } = await db.from("propuestas").insert([dbRow]);
     if (error) { alert("Error al crear: " + error.message); setSyncStatus("error"); }
     else { setSyncStatus("synced"); setShowNew(false); }
   };
@@ -917,7 +919,7 @@ function App() {
   const updateUfClp = async (newVal) => {
     setUfClp(newVal);
     if (!isOffline) {
-      await supabase.from("config").update({ valor: String(newVal) }).eq("clave", "uf_clp");
+      await db.from("config").update({ valor: String(newVal) }).eq("clave", "uf_clp");
     }
   };
 
@@ -974,9 +976,9 @@ function App() {
         `¡Atención! Esto borrará las ${data.length} propuestas actuales en Supabase y las reemplazará con ${newRows.length}. ¿Continuar?`
       );
       if (!confirmReplace) { setSyncStatus("idle"); return; }
-      const { error: delErr } = await supabase.from("propuestas").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      const { error: delErr } = await db.from("propuestas").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       if (delErr) { alert("Error al borrar: " + delErr.message); setSyncStatus("error"); return; }
-      const { error } = await supabase.from("propuestas").insert(newRows.map(toDbRow));
+      const { error } = await db.from("propuestas").insert(newRows.map(toDbRow));
       if (error) { alert("Error al insertar: " + error.message); setSyncStatus("error"); return; }
     } else {
       // Fusionar: para cada registro buscamos si existe por proyecto+cliente
@@ -987,11 +989,11 @@ function App() {
           (d.cliente || "").toLowerCase().trim() === (r.cliente || "").toLowerCase().trim()
         );
         if (existing) {
-          const { error } = await supabase.from("propuestas").update(toDbRow(r)).eq("id", existing.id);
+          const { error } = await db.from("propuestas").update(toDbRow(r)).eq("id", existing.id);
           if (error) { alert("Error fusionando: " + error.message); setSyncStatus("error"); return; }
           updated++;
         } else {
-          const { error } = await supabase.from("propuestas").insert([toDbRow(r)]);
+          const { error } = await db.from("propuestas").insert([toDbRow(r)]);
           if (error) { alert("Error insertando: " + error.message); setSyncStatus("error"); return; }
           inserted++;
         }
@@ -1050,7 +1052,7 @@ function App() {
                   <div className="text-slate-500 uppercase tracking-wider text-[9px]">Sesión</div>
                   <div className="text-slate-800 font-medium">{session.user.email}</div>
                 </div>
-                <button onClick={async () => { await supabase.auth.signOut(); }}
+                <button onClick={async () => { await db.auth.signOut(); }}
                   className="p-2 hover:bg-slate-100 rounded text-slate-500 hover:text-rose-600 border border-slate-300"
                   title="Cerrar sesión">
                   <Icon name="x" className="w-4 h-4" />
@@ -2489,7 +2491,7 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
   const [toast, setToast] = useState(null);
   const printRef = useRef(null);
 
-  const supabaseOn = !!(typeof supabase !== "undefined" && supabase);
+  const supabaseOn = !!(typeof db !== "undefined" && db);
 
   // Cargar historial desde Supabase al montar + suscripción realtime
   useEffect(() => {
@@ -2497,7 +2499,7 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
     let canceled = false;
     const cargar = async () => {
       setCargandoHist(true);
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("cotizaciones")
         .select("id,numero,fecha,estado,cliente_razon_social,proyecto_nombre,total_uf,subtotal_uf,iva_uf,data,updated_at")
         .order("updated_at", { ascending: false })
@@ -2509,11 +2511,11 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
       }
     };
     cargar();
-    const channel = supabase
+    const channel = db
       .channel("cot-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "cotizaciones" }, () => { cargar(); })
       .subscribe();
-    return () => { canceled = true; try { supabase.removeChannel(channel); } catch(e) {} };
+    return () => { canceled = true; try { db.removeChannel(channel); } catch(e) {} };
   }, [supabaseOn]);
 
   // Auto-guardar borrador
@@ -2636,10 +2638,10 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
     };
     let res;
     if (cotId) {
-      res = await supabase.from("cotizaciones").update(payload).eq("id", cotId).select().single();
+      res = await db.from("cotizaciones").update(payload).eq("id", cotId).select().single();
     } else {
       // Si ya existe una con el mismo número, hacemos upsert por numero
-      res = await supabase.from("cotizaciones").upsert(payload, { onConflict: "numero" }).select().single();
+      res = await db.from("cotizaciones").upsert(payload, { onConflict: "numero" }).select().single();
     }
     if (res.error) {
       setSyncStatus("error");
@@ -2668,7 +2670,7 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
   const eliminarDelHistorial = async (item) => {
     if (!confirm("¿Eliminar definitivamente esta cotización? Acción quedará en audit_log.")) return;
     if (supabaseOn && item.id) {
-      const { error } = await supabase.from("cotizaciones").delete().eq("id", item.id);
+      const { error } = await db.from("cotizaciones").delete().eq("id", item.id);
       if (error) { flash("Error eliminando: " + error.message, "err"); return; }
       if (cotId === item.id) setCotId(null);
       flash("Eliminada");
@@ -4026,3 +4028,4 @@ setTimeout(() => {
 </script>
 </body>
 </html>
+                                        

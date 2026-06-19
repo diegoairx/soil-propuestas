@@ -1094,7 +1094,7 @@ function App() {
           notes={notes} setNotes={setNotes}
           expandedRow={expandedRow} setExpandedRow={setExpandedRow}
         />}
-        {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} />}
+        {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} propuestas={data} />}
         {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
         {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
@@ -1340,7 +1340,7 @@ function Propuestas(p) {
                     {isExpanded && (
                       <tr className="border-b border-slate-200 bg-slate-50">
                         <td colSpan={7} className="p-5">
-                          <div className="grid md:grid-cols-2 gap-4">
+                          <div className="grid md:grid-cols-2 gap-4 mb-4">
                             <div>
                               <h4 className="text-xs uppercase tracking-wider text-slate-600 mb-2">Servicios cotizados</h4>
                               <div className="flex flex-wrap gap-1.5">
@@ -1360,6 +1360,8 @@ function Propuestas(p) {
                                 className="w-full h-24 bg-white border border-slate-300 rounded p-2 text-xs text-slate-900 focus:outline-none focus:border-[#CC1414] resize-none" />
                             </div>
                           </div>
+                          {/* Cotizaciones asociadas */}
+                          <CotizacionesDePropuesta propuestaId={rowId} ufClp={p.ufClp} />
                         </td>
                       </tr>
                     )}
@@ -2233,6 +2235,8 @@ const meses_es = ["enero","febrero","marzo","abril","mayo","junio","julio","agos
 const _hoy = new Date();
 const fechaLargaHoy = `${_hoy.getDate()} de ${meses_es[_hoy.getMonth()]} de ${_hoy.getFullYear()}`;
 
+const ESTADOS_COT = ["Borrador","Enviada","En revisión","Adjudicada","Rechazada","Vencida","Stand by"];
+
 const COTIZACION_VACIA = () => ({
   // Encabezado
   numero:    "S-[NÚMERO]/" + String(_hoy.getMonth()+1).padStart(2,"0") + String(_hoy.getFullYear()).slice(-2),
@@ -2241,6 +2245,8 @@ const COTIZACION_VACIA = () => ({
   ciudad:    "Concepción",
   validez:   "30 días corridos",
   moneda:    "UF",
+  estado_oferta: "Borrador",
+  propuesta_id: null,  // FK a public.propuestas — para auto-sync con seguimiento
 
   // Destinatario (Tabla inicial)
   cliente: {
@@ -2456,7 +2462,7 @@ const fmtNum = (n, d=2) => {
   return Number(n).toLocaleString("es-CL", { minimumFractionDigits: d, maximumFractionDigits: d });
 };
 
-function Cotizaciones({ ufClp, clientesUnicos }) {
+function Cotizaciones({ ufClp, clientesUnicos, propuestas }) {
   const STORAGE_KEY = "soil_cotizacion_borrador_v2";
 
   // Cargar borrador si existe — migración silenciosa desde v1
@@ -2625,6 +2631,8 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
       ciudad:              cot.ciudad,
       validez:             cot.validez,
       moneda:              cot.moneda,
+      estado:              cot.estado_oferta || "Borrador",
+      propuesta_id:        cot.propuesta_id || null,
       cliente_razon_social: cot.cliente.razon_social,
       cliente_rut:         cot.cliente.rut || null,
       cliente_contacto:    cot.cliente.contacto || null,
@@ -2649,8 +2657,38 @@ function Cotizaciones({ ufClp, clientesUnicos }) {
       return;
     }
     if (res.data && res.data.id) setCotId(res.data.id);
+
+    // ===== AUTO-SYNC con propuesta vinculada =====
+    // Si el estado_oferta cambia a Enviada/Adjudicada/Rechazada/Stand by, actualiza la propuesta vinculada
+    if (cot.propuesta_id) {
+      const mapEstado = {
+        "Enviada":     "Cotización enviada",
+        "En revisión": "Negociación proyecto",
+        "Adjudicada":  "Proyecto adjudicado",
+        "Rechazada":   "Proyecto rechazado",
+        "Stand by":    "Stand by",
+        "Vencida":     "Sin definir"
+      };
+      const nuevoStatusProp = mapEstado[cot.estado_oferta];
+      if (nuevoStatusProp) {
+        const updateProp = {
+          status: nuevoStatusProp,
+          monto_uf: Number(totales.total_uf) || 0,
+          ultimo_contacto: new Date().toLocaleDateString("es-CL", { day:"2-digit", month:"2-digit", year:"numeric" })
+        };
+        const r2 = await db.from("propuestas").update(updateProp).eq("id", cot.propuesta_id);
+        if (r2.error) {
+          flash("Cotización guardada — error sincronizando propuesta: " + r2.error.message, "err");
+        } else {
+          flash("Cotización guardada + propuesta vinculada actualizada a " + nuevoStatusProp);
+        }
+      } else {
+        flash("Cotización guardada en Supabase");
+      }
+    } else {
+      flash("Cotización guardada en Supabase");
+    }
     setSyncStatus("saved");
-    flash("Cotización guardada en Supabase");
     setTimeout(() => setSyncStatus("idle"), 2500);
   };
 
@@ -2798,11 +2836,48 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
 
           {/* 1) Encabezado */}
           <Seccion icon="fileText" title="Encabezado de la Cotización" defaultOpen={true}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
               <CotField label="N° Cotización" value={cot.numero}  onChange={v => setCot(c => ({ ...c, numero: v }))} />
               <CotField label="Fecha"         value={cot.fecha}   onChange={v => setCot(c => ({ ...c, fecha: v, fecha_larga: v ? new Date(v + "T00:00").getDate() + " de " + meses_es[new Date(v + "T00:00").getMonth()] + " de " + new Date(v + "T00:00").getFullYear() : c.fecha_larga }))} type="date" />
               <CotField label="Ciudad"        value={cot.ciudad}  onChange={v => setCot(c => ({ ...c, ciudad: v }))} />
               <CotField label="Validez"       value={cot.validez} onChange={v => setCot(c => ({ ...c, validez: v }))} />
+            </div>
+            {/* Estado y vinculacion a propuesta del seguimiento */}
+            <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Estado de la oferta</label>
+                <select value={cot.estado_oferta || "Borrador"}
+                  onChange={e => setCot(c => ({ ...c, estado_oferta: e.target.value }))}
+                  className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]">
+                  {ESTADOS_COT.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Al cambiar a Adjudicada/Rechazada se actualizara la propuesta vinculada
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">
+                  Vincular a propuesta del seguimiento
+                  {cot.propuesta_id && <span className="ml-2 text-emerald-600">vinculada</span>}
+                </label>
+                <div className="flex gap-1">
+                  <select value={cot.propuesta_id || ""}
+                    onChange={e => setCot(c => ({ ...c, propuesta_id: e.target.value || null }))}
+                    className="flex-1 text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]">
+                    <option value="">— Sin vincular —</option>
+                    {(propuestas || []).slice().sort((a,b) => (a.proyecto||"").localeCompare(b.proyecto||"")).map(p => (
+                      <option key={p.id} value={p.id}>{(p.proyecto||"").slice(0,40)} · {(p.cliente||"").slice(0,30)}</option>
+                    ))}
+                  </select>
+                  {cot.propuesta_id && (
+                    <button onClick={() => setCot(c => ({ ...c, propuesta_id: null }))}
+                      title="Desvincular"
+                      className="px-2 text-slate-400 hover:text-rose-600 border border-slate-300 rounded">
+                      <Icon name="x" className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </Seccion>
 
@@ -3948,30 +4023,22 @@ function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDe
                 : ("Local en este navegador - " + historial.length + " registros")}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-rose-600">
-            <Icon name="x" />
-          </button>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-rose-600"><Icon name="x" /></button>
         </div>
         <div className="px-6 py-3 border-b border-slate-200">
-          <input value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Buscar por numero, cliente o proyecto..."
-            className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por numero, cliente o proyecto..." className="w-full text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-[#0D2B5E]" />
         </div>
         <div className="flex-1 overflow-auto px-6 py-4">
           {filtrado.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-sm">
-              {historial.length === 0 ? "Sin cotizaciones guardadas aun" : "Sin resultados para tu busqueda"}
-            </div>
+            <div className="text-center py-12 text-slate-400 text-sm">{historial.length === 0 ? "Sin cotizaciones guardadas aun" : "Sin resultados"}</div>
           ) : (
             <div className="space-y-2">
               {filtrado.map((h, idx) => {
                 const cli  = h.cliente_razon_social || (h.cliente && h.cliente.razon_social) || "-";
-                const proy = h.proyecto_nombre      || (h.proyecto && h.proyecto.nombre)     || "";
+                const proy = h.proyecto_nombre || (h.proyecto && h.proyecto.nombre) || "";
                 const totalUf = Number(h.total_uf || 0);
-                const npart = (h.data && h.data.item2_partidas && h.data.item2_partidas.length) || (h.item2_partidas && h.item2_partidas.length) || 0;
-                const fechaTxt = h.updated_at ? new Date(h.updated_at).toLocaleString("es-CL")
-                  : h.guardada_en ? new Date(h.guardada_en).toLocaleString("es-CL")
-                  : h.fecha || "";
+                const npart = (h.data && h.data.item2_partidas && h.data.item2_partidas.length) || 0;
+                const fechaTxt = h.updated_at ? new Date(h.updated_at).toLocaleString("es-CL") : h.fecha || "";
                 return (
                   <div key={h.id || h.numero || idx} className="border border-slate-200 rounded p-3 hover:border-[#0D2B5E] transition">
                     <div className="flex items-center justify-between gap-3">
@@ -3980,24 +4047,14 @@ function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDe
                           <span className="text-xs font-mono font-bold text-[#CC1414]">{h.numero}</span>
                           <span className="text-xs text-slate-400">.</span>
                           <span className="text-sm font-semibold text-slate-800 truncate">{cli}</span>
-                          {h.estado && (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold">{h.estado}</span>
-                          )}
+                          {h.estado && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold">{h.estado}</span>}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {proy} - {npart} partidas - <strong className="text-[#0D2B5E]">{fmtNum(totalUf, 2)} UF</strong>
-                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">{proy} - {npart} partidas - <strong className="text-[#0D2B5E]">{fmtNum(totalUf, 2)} UF</strong></div>
                         <div className="text-[10px] text-slate-400 mt-0.5">Actualizada: {fechaTxt}</div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => onLoad(h)}
-                          className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900">
-                          Cargar
-                        </button>
-                        <button onClick={() => onDelete(h)}
-                          className="p-2 text-slate-400 hover:text-rose-600">
-                          <Icon name="trash" className="w-4 h-4" />
-                        </button>
+                        <button onClick={() => onLoad(h)} className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900">Cargar</button>
+                        <button onClick={() => onDelete(h)} className="p-2 text-slate-400 hover:text-rose-600"><Icon name="trash" className="w-4 h-4" /></button>
                       </div>
                     </div>
                   </div>
@@ -4007,6 +4064,82 @@ function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDe
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// COTIZACIONES ASOCIADAS A UNA PROPUESTA
+// ============================================================================
+function CotizacionesDePropuesta({ propuestaId, ufClp }) {
+  const [cots, setCots] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let cancel = false;
+    const cargar = async () => {
+      if (typeof db === "undefined" || !db) { setCots([]); return; }
+      const { data, error } = await db.from("cotizaciones")
+        .select("id,numero,fecha,estado,total_uf,subtotal_uf,iva_uf,updated_at")
+        .eq("propuesta_id", propuestaId)
+        .order("updated_at", { ascending: false });
+      if (cancel) return;
+      if (error) { setError(error.message); setCots([]); return; }
+      setCots(data || []);
+    };
+    cargar();
+    return () => { cancel = true; };
+  }, [propuestaId]);
+
+  if (cots === null) return <div className="text-xs text-slate-400 italic">Cargando cotizaciones vinculadas...</div>;
+  if (error) return <div className="text-xs text-rose-600">Error: {error}</div>;
+  if (cots.length === 0) {
+    return (
+      <div className="border-t border-slate-200 pt-3 mt-2">
+        <h4 className="text-xs uppercase tracking-wider text-slate-600 mb-2">Cotizaciones asociadas</h4>
+        <div className="text-xs text-slate-400 italic">Sin cotizaciones vinculadas. Crea una en la pestana Cotizaciones y selecciona esta propuesta en el campo "Vincular a propuesta".</div>
+      </div>
+    );
+  }
+  const totalUf = cots.reduce((s,c) => s + Number(c.total_uf||0), 0);
+  const estadoColor = (e) => ({
+    "Borrador":      "bg-slate-100 text-slate-600",
+    "Enviada":       "bg-blue-100 text-blue-700",
+    "En revisión":   "bg-amber-100 text-amber-700",
+    "Adjudicada":    "bg-emerald-100 text-emerald-700",
+    "Rechazada":     "bg-rose-100 text-rose-700",
+    "Vencida":       "bg-slate-100 text-slate-500",
+    "Stand by":      "bg-yellow-100 text-yellow-700"
+  }[e] || "bg-slate-100 text-slate-600");
+  return (
+    <div className="border-t border-slate-200 pt-3 mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs uppercase tracking-wider text-slate-600">Cotizaciones asociadas ({cots.length})</h4>
+        <div className="text-xs text-slate-500">Suma total: <strong className="text-[#0D2B5E]">{fmtNum(totalUf, 2)} UF</strong></div>
+      </div>
+      <table className="w-full text-xs bg-white border border-slate-200 rounded">
+        <thead className="bg-slate-100 text-slate-600"><tr>
+          <th className="px-2 py-1.5 text-left font-semibold">N°</th>
+          <th className="px-2 py-1.5 text-left font-semibold">Fecha</th>
+          <th className="px-2 py-1.5 text-left font-semibold">Estado</th>
+          <th className="px-2 py-1.5 text-right font-semibold">Subtotal UF</th>
+          <th className="px-2 py-1.5 text-right font-semibold">IVA UF</th>
+          <th className="px-2 py-1.5 text-right font-semibold">Total UF</th>
+          <th className="px-2 py-1.5 text-right font-semibold">Actualizada</th>
+        </tr></thead>
+        <tbody>
+          {cots.map(c => (
+            <tr key={c.id} className="border-t border-slate-200 hover:bg-slate-50">
+              <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414]">{c.numero}</td>
+              <td className="px-2 py-1.5 text-slate-700">{c.fecha}</td>
+              <td className="px-2 py-1.5"><span className={"px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold " + estadoColor(c.estado)}>{c.estado || "Borrador"}</span></td>
+              <td className="px-2 py-1.5 text-right text-slate-700">{fmtNum(c.subtotal_uf, 2)}</td>
+              <td className="px-2 py-1.5 text-right text-slate-700">{fmtNum(c.iva_uf, 2)}</td>
+              <td className="px-2 py-1.5 text-right font-bold text-[#0D2B5E]">{fmtNum(c.total_uf, 2)}</td>
+              <td className="px-2 py-1.5 text-right text-[10px] text-slate-500">{c.updated_at ? new Date(c.updated_at).toLocaleDateString("es-CL") : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -4028,4 +4161,3 @@ setTimeout(() => {
 </script>
 </body>
 </html>
-                                        

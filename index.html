@@ -5,6 +5,9 @@
 <title>Seguimiento Propuestas · SOIL Limitada</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%230D2B5E'/%3E%3Ctext x='32' y='44' font-family='Impact,sans-serif' font-size='32' font-weight='900' text-anchor='middle' fill='white'%3ES%3C/text%3E%3Crect x='8' y='52' width='48' height='4' fill='%23CC1414'/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 
 <!-- Fuentes -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -56,6 +59,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.1.1 · BUILD 2026-07-20</div>
   </div>
 </div>
 
@@ -67,6 +71,12 @@ const {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, LineChart, Line, Legend
 } = Recharts;
+
+// ============================================================================
+// APP VERSION — actualizar en cada deploy para verificación visual
+// ============================================================================
+const APP_VERSION = "v6.1.1";
+const APP_BUILD   = "2026-07-20";
 
 // ============================================================================
 // SUPABASE CONFIG — REEMPLAZAR CON TUS CREDENCIALES (paso 1.3 de la guía)
@@ -1022,6 +1032,7 @@ function App() {
               <h1 className="display-font text-3xl font-black tracking-tight text-[#0D2B5E]">SEGUIMIENTO PROPUESTAS</h1>
               <p className="text-xs text-slate-500 uppercase tracking-widest">
                 Soil Limitada · Pipeline comercial
+                <span className="ml-2 text-[#CC1414] font-bold" title={`Build ${APP_BUILD}`}>· {APP_VERSION}</span>
                 {!isOffline && <SyncBadge status={syncStatus} />}
                 {isOffline && <span className="ml-2 text-amber-600">· Modo local (Supabase no configurado)</span>}
               </p>

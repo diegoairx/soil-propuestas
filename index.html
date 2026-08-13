@@ -59,7 +59,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.1.2 · BUILD 2026-07-31</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.0 · BUILD 2026-08-13</div>
   </div>
 </div>
 
@@ -75,14 +75,33 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.1.2";
-const APP_BUILD   = "2026-07-31";
+const APP_VERSION = "v6.2.0";
+const APP_BUILD   = "2026-08-13";
 
 // ============================================================================
 // SUPABASE CONFIG — REEMPLAZAR CON TUS CREDENCIALES (paso 1.3 de la guía)
 // ============================================================================
 const SUPABASE_URL      = "https://dorshinrvqppaxvzskor.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvcnNoaW5ydnFwcGF4dnpza29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MDMxMzgsImV4cCI6MjA5MzQ3OTEzOH0.zXYUEdUwfovCOXnB0SGFYEk-xqOCZqPKwZwGN0t0L9w";
+
+// ============================================================================
+// CUBICADOR DE ENTIBACIONES (Ngenco) — proyecto Supabase independiente
+// Se usa solo para LEER las cubicaciones guardadas e importarlas al Ítem 2.
+// Tiene sesión propia (storageKey distinto) para no pisar la sesión de Soil.
+// ============================================================================
+const CUBICADOR_URL = "https://jhikhnciakulgwhfflyv.supabase.co";
+const CUBICADOR_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoaWtobmNpYWt1bGd3aGZmbHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MTQwODcsImV4cCI6MjA5OTE5MDA4N30.H4BT3REE5Sn8t6dXMD10suDUyw3PqCPkpQLz12gQASg";
+
+let _cubClient = null;
+const getCubicador = () => {
+  if (!window.supabase) return null;
+  if (!_cubClient) {
+    _cubClient = window.supabase.createClient(CUBICADOR_URL, CUBICADOR_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: "sb-cubicador-auth" }
+    });
+  }
+  return _cubClient;
+};
 
 // Cliente Supabase global — renombrado a "db" para no colisionar con window.supabase de la lib UMD
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("PEGA_AQUÍ") && !SUPABASE_ANON_KEY.includes("PEGA_AQUÍ");
@@ -866,6 +885,38 @@ function App() {
 
   const clientesUnicos = useMemo(() => [...new Set(data.map(d => d.cliente))].sort(), [data]);
 
+  // Directorio de clientes: agrupa por razón social y conserva los datos de contacto
+  // más recientes (según último contacto dd/mm/yyyy). Alimenta el selector de clientes.
+  const directorioClientes = useMemo(() => {
+    const parseFecha = (s) => {
+      const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((s || "").trim());
+      return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : 0;
+    };
+    const mapa = {};
+    (data || []).forEach(d => {
+      const nombre = (d.cliente || "").trim();
+      if (!nombre) return;
+      const ts = parseFecha(d.ultimo_contacto);
+      if (!mapa[nombre]) {
+        mapa[nombre] = { cliente: nombre, contacto: "", email: "", telefono: "", ts: -1, n: 0, contactos: {} };
+      }
+      const e = mapa[nombre];
+      e.n += 1;
+      if (d.contacto) {
+        e.contactos[d.contacto] = { contacto: d.contacto, email: d.email || "", telefono: d.telefono || "" };
+      }
+      if (ts >= e.ts) {
+        e.ts = ts;
+        if (d.contacto) e.contacto = d.contacto;
+        if (d.email)    e.email    = d.email;
+        if (d.telefono) e.telefono = d.telefono;
+      }
+    });
+    return Object.values(mapa)
+      .map(e => ({ ...e, contactos: Object.values(e.contactos) }))
+      .sort((a, b) => a.cliente.localeCompare(b.cliente));
+  }, [data]);
+
   const updateRow = async (id, patch) => {
     if (isOffline) {
       setData(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
@@ -1094,6 +1145,7 @@ function App() {
         {tab === "propuestas" && <Propuestas
           ufClp={ufClp}
           data={filtered} totalData={data} clientesUnicos={clientesUnicos}
+          directorioClientes={directorioClientes}
           search={search} setSearch={setSearch}
           filterStatus={filterStatus} setFilterStatus={setFilterStatus}
           filterCliente={filterCliente} setFilterCliente={setFilterCliente}
@@ -1105,7 +1157,7 @@ function App() {
           notes={notes} setNotes={setNotes}
           expandedRow={expandedRow} setExpandedRow={setExpandedRow}
         />}
-        {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} propuestas={data} />}
+        {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} directorioClientes={directorioClientes} propuestas={data} />}
         {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
         {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
@@ -1274,7 +1326,7 @@ function Propuestas(p) {
         </div>
       </div>
 
-      {p.showNew && <NuevaPropuestaModal onClose={() => p.setShowNew(false)} onSave={p.addRow} />}
+      {p.showNew && <NuevaPropuestaModal onClose={() => p.setShowNew(false)} onSave={p.addRow} directorio={p.directorioClientes || []} />}
 
       <div className="bg-white border border-slate-200 shadow-sm rounded overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
@@ -1310,7 +1362,7 @@ function Propuestas(p) {
                 if (isEditing) return (
                   <tr key={rowId} className="border-b border-slate-200 bg-slate-50">
                     <td colSpan={7} className="p-4">
-                      <EditForm draft={p.editDraft} setDraft={p.setEditDraft} onSave={p.saveEdit} onCancel={p.cancelEdit} />
+                      <EditForm draft={p.editDraft} setDraft={p.setEditDraft} onSave={p.saveEdit} onCancel={p.cancelEdit} directorio={p.directorioClientes || []} />
                     </td>
                   </tr>
                 );
@@ -1393,12 +1445,23 @@ function Propuestas(p) {
 // ============================================================================
 // EDIT FORM + NUEVA PROPUESTA
 // ============================================================================
-function EditForm({ draft, setDraft, onSave, onCancel }) {
+function EditForm({ draft, setDraft, onSave, onCancel, directorio = [] }) {
+  // Al elegir un cliente existente se rellenan sus datos de contacto más recientes
+  const elegirCliente = (nombre, datos) => {
+    if (datos) {
+      setDraft({ ...draft, cliente: nombre,
+        contacto: datos.contacto || draft.contacto || "",
+        email:    datos.email    || draft.email    || "",
+        telefono: datos.telefono || draft.telefono || "" });
+    } else {
+      setDraft({ ...draft, cliente: nombre });
+    }
+  };
   return (
     <div className="space-y-3">
       <div className="grid md:grid-cols-2 gap-3">
         <Field label="Proyecto" value={draft.proyecto} onChange={v => setDraft({...draft, proyecto: v})} />
-        <Field label="Cliente"  value={draft.cliente}  onChange={v => setDraft({...draft, cliente: v})} />
+        <ClienteSelect value={draft.cliente} onChange={elegirCliente} directorio={directorio} />
         <Field label="Contacto" value={draft.contacto} onChange={v => setDraft({...draft, contacto: v})} />
         <Field label="Email"    value={draft.email}    onChange={v => setDraft({...draft, email: v})} />
         <Field label="Teléfono" value={draft.telefono} onChange={v => setDraft({...draft, telefono: v})} />
@@ -1421,6 +1484,106 @@ function EditForm({ draft, setDraft, onSave, onCancel }) {
           <Icon name="save" /> Guardar
         </button>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SELECTOR DE CLIENTES — combobox con autocompletado desde la base de datos
+// Permite elegir un cliente existente (autocompleta contacto/email/teléfono)
+// o escribir uno nuevo que no esté en la lista.
+// ============================================================================
+function ClienteSelect({ label = "Cliente", value, onChange, directorio = [], full = false, compact = false }) {
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState("");
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    const fuera = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fuera);
+    return () => document.removeEventListener("mousedown", fuera);
+  }, []);
+
+  const texto = open ? query : (value || "");
+  const norm  = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const filtrados = useMemo(() => {
+    const q = norm(query).trim();
+    if (!q) return directorio.slice(0, 60);
+    return directorio.filter(c => norm(c.cliente).includes(q)).slice(0, 60);
+  }, [query, directorio]);
+
+  const existeExacto = directorio.some(c => norm(c.cliente) === norm(query).trim());
+  const puedeCrear   = query.trim().length > 1 && !existeExacto;
+
+  const elegir = (c) => {
+    onChange(c.cliente, c);           // cliente existente → el padre autocompleta
+    setOpen(false); setQuery("");
+  };
+  const crearNuevo = () => {
+    onChange(query.trim(), null);     // cliente nuevo → sin datos previos
+    setOpen(false); setQuery("");
+  };
+
+  const inputCls = compact
+    ? "w-full text-sm border border-slate-300 rounded px-2 py-1.5 pr-7 focus:outline-none focus:border-[#0D2B5E]"
+    : "w-full bg-white border border-slate-300 rounded px-3 py-2 pr-7 text-sm text-slate-900 focus:outline-none focus:border-[#CC1414]";
+  const labelCls = compact
+    ? "block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1"
+    : "text-[10px] uppercase tracking-wider text-slate-600 block mb-1";
+
+  return (
+    <div className={full ? "md:col-span-2 relative" : "relative"} ref={boxRef}>
+      <label className={labelCls}>
+        {label}
+        {directorio.length > 0 && <span className="ml-2 normal-case tracking-normal text-slate-400">({directorio.length} en base)</span>}
+      </label>
+      <div className="relative">
+        <input
+          type="text"
+          value={texto}
+          placeholder="Escribe o elige de la lista…"
+          onFocus={() => { setOpen(true); setQuery(value || ""); }}
+          onChange={e => { setQuery(e.target.value); setOpen(true); onChange(e.target.value, null); }}
+          onKeyDown={e => {
+            if (e.key === "Enter" && puedeCrear) { e.preventDefault(); crearNuevo(); }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          className={inputCls} />
+        <button type="button" tabIndex={-1}
+          onClick={() => { setOpen(o => !o); setQuery(""); }}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#0D2B5E] p-1"
+          title="Ver clientes de la base de datos">
+          <Icon name="chevron" className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-300 rounded shadow-xl max-h-64 overflow-auto scrollbar-thin">
+          {filtrados.length === 0 && !puedeCrear && (
+            <div className="px-3 py-3 text-xs text-slate-400 text-center">Sin coincidencias</div>
+          )}
+          {filtrados.map(c => (
+            <button key={c.cliente} type="button" onMouseDown={e => e.preventDefault()} onClick={() => elegir(c)}
+              className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition">
+              <div className="text-sm font-medium text-slate-800 truncate">{c.cliente}</div>
+              <div className="text-[10px] text-slate-500 truncate">
+                {c.contacto ? c.contacto : "sin contacto"}
+                {c.email ? " · " + c.email : ""}
+                <span className="text-slate-400"> · {c.n} {c.n === 1 ? "propuesta" : "propuestas"}</span>
+              </div>
+            </button>
+          ))}
+          {puedeCrear && (
+            <button type="button" onMouseDown={e => e.preventDefault()} onClick={crearNuevo}
+              className="w-full text-left px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border-t border-emerald-200 transition flex items-center gap-2">
+              <Icon name="plus" className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-xs text-emerald-800">
+                Agregar cliente nuevo: <strong>{query.trim()}</strong>
+              </span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1803,7 +1966,7 @@ function ImportarCSVModal({ onClose, onApply, currentCount }) {
   );
 }
 
-function NuevaPropuestaModal({ onClose, onSave }) {
+function NuevaPropuestaModal({ onClose, onSave, directorio = [] }) {
   const [draft, setDraft] = useState({
     proyecto: "", cliente: "", contacto: "", email: "", telefono: "",
     monto: 0, status: "Cotización enviada", servicios: "", ultimo_contacto: ""
@@ -1815,7 +1978,7 @@ function NuevaPropuestaModal({ onClose, onSave }) {
           <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Nueva propuesta</h3>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700"><Icon name="x" className="w-5 h-5" /></button>
         </div>
-        <EditForm draft={draft} setDraft={setDraft} onSave={() => onSave(draft)} onCancel={onClose} />
+        <EditForm draft={draft} setDraft={setDraft} onSave={() => onSave(draft)} onCancel={onClose} directorio={directorio} />
       </div>
     </div>
   );
@@ -2390,7 +2553,7 @@ const COTIZACION_VACIA = () => ({
     "No se incluyen ensayos de materiales, ensayos de pernos o anclajes, ni instrumentación geotécnica que no esté expresamente cotizada en esta oferta.",
     "Soil no se hace responsable por daños a estructuras o cierres que presenten condición subestándar (incumplimiento de normativa legal). Posterior a la entrega formal del terreno, Soil presentará un catastro del estado de deslindes a la ITO y/o mandante.",
     "Se cancelarán las cantidades realmente ejecutadas para los movimientos de tierra. Los precios unitarios fueron estudiados sobre la base de las cantidades mínimas declaradas en el cuadro de precios; reducciones superiores al 20% pueden gatillar revisión.",
-    "Si durante la ejecución se detecta una condición de terreno no informada (rocas, bolones, suelos sueltos, agua freática fuerte, obstáculos enterrados), Soil paralizará los trabajos en esa posición y propondrá un diagnóstico con su impacto económico.",
+    "Si durante la ejecución se detecta una condición de terreno no informada (rocas, bolones, suelos sueltos, agua freática fuerte \"acuíferos con alta presión y velocidad\", obstáculos enterrados), Soil paralizará los trabajos en esa posición y propondrá un diagnóstico con su impacto económico.",
     "Esta oferta no contempla perforación en terreno que no sea natural — los obstáculos deben ser retirados con anterioridad por el mandante.",
     "Las vigas longuerinas y demás elementos declarados como propiedad de Soil deben ser devueltos al término de los trabajos.",
     "Soil entregará al cliente el Certificado de Cumplimiento de Obligaciones Previsionales y Laborales (F30/F30-1) emitido por la Inspección del Trabajo. Este certificado se entrega a fines del mes \"n\" por las obligaciones del mes \"n-1\" y no podrá condicionar la aprobación de los estados de pago.",
@@ -2474,7 +2637,235 @@ const fmtNum = (n, d=2) => {
   return Number(n).toLocaleString("es-CL", { minimumFractionDigits: d, maximumFractionDigits: d });
 };
 
-function Cotizaciones({ ufClp, clientesUnicos, propuestas }) {
+// ============================================================================
+// IMPORTAR CUBICACIÓN DESDE EL CUBICADOR DE ENTIBACIONES
+// Lee cubicador_proyectos del proyecto Ngenco y traspasa el cuadro resumen
+// (sistema · partida · unidad · cantidad) al Ítem 2 de la cotización.
+// ============================================================================
+function ImportarCubicacionModal({ onClose, onImportar }) {
+  const [sesion, setSesion]       = useState(undefined); // undefined = comprobando
+  const [email, setEmail]         = useState("");
+  const [pass, setPass]           = useState("");
+  const [cargando, setCargando]   = useState(false);
+  const [error, setError]         = useState("");
+  const [proyectos, setProyectos] = useState([]);
+  const [sel, setSel]             = useState(null);
+  const [marcadas, setMarcadas]   = useState({});
+
+  const cub = getCubicador();
+
+  // ¿Ya hay sesión guardada del cubicador?
+  useEffect(() => {
+    if (!cub) { setSesion(null); return; }
+    cub.auth.getSession().then(({ data }) => setSesion(data?.session || null));
+  }, []);
+
+  // Con sesión activa, cargar los proyectos
+  useEffect(() => {
+    if (!sesion) return;
+    setCargando(true); setError("");
+    cub.from("cubicador_proyectos")
+      .select("id,proyecto_num,nombre,cliente,total_uf,actualizado_en,datos")
+      .order("actualizado_en", { ascending: false })
+      .then(({ data, error }) => {
+        setCargando(false);
+        if (error) { setError("No se pudieron leer los proyectos: " + error.message); return; }
+        setProyectos(data || []);
+        if (!data || data.length === 0) setError("Tu usuario no tiene proyectos visibles en el cubicador.");
+      });
+  }, [sesion]);
+
+  const entrar = async () => {
+    setCargando(true); setError("");
+    const { data, error } = await cub.auth.signInWithPassword({ email: email.trim(), password: pass });
+    setCargando(false);
+    if (error) { setError("No se pudo iniciar sesión: " + error.message); return; }
+    setSesion(data.session);
+  };
+
+  // Extraer el cuadro resumen guardado por el cubicador
+  const partidas = useMemo(() => {
+    if (!sel) return [];
+    const r = sel?.datos?.resumen_partidas;
+    if (!Array.isArray(r)) return [];
+    return r.map((x, i) => ({
+      idx: i,
+      capitulo:    x.sis  || "Cubicación",
+      descripcion: x.key  || "",
+      unidad:      x.unit || "GL",
+      cantidad:    Number(x.qty) || 0
+    })).filter(p => p.descripcion);
+  }, [sel]);
+
+  useEffect(() => {
+    const m = {}; partidas.forEach(p => { m[p.idx] = true; });
+    setMarcadas(m);
+  }, [partidas]);
+
+  const seleccionadas = partidas.filter(p => marcadas[p.idx]);
+
+  const confirmar = () => {
+    onImportar(seleccionadas.map(p => ({
+      id: Date.now() + Math.random(),
+      capitulo:    p.capitulo,
+      descripcion: p.descripcion,
+      unidad:      p.unidad,
+      cantidad:    p.cantidad,
+      precio_uf:   0
+    })));
+    onClose();
+  };
+
+  const fmtFecha = (s) => { try { return new Date(s).toLocaleDateString("es-CL"); } catch { return ""; } };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white border border-slate-200 rounded max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Importar cubicación</h3>
+            <p className="text-xs text-slate-500">Cubicador de Entibaciones · Ngenco SpA</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700"><Icon name="x" className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="bg-rose-50 border-l-4 border-rose-600 text-rose-900 text-sm px-4 py-3 rounded">{error}</div>
+          )}
+
+          {sesion === undefined && <div className="text-center py-8 text-sm text-slate-500">Comprobando sesión…</div>}
+
+          {/* Login al cubicador */}
+          {sesion === null && (
+            <div className="space-y-3">
+              <div className="bg-blue-50 border-l-4 border-[#0D2B5E] text-slate-700 text-xs px-4 py-3 rounded">
+                El cubicador es una aplicación aparte con su propio acceso. Ingresa tus credenciales del
+                cubicador una vez: la sesión queda guardada en este navegador.
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1">Correo</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="username"
+                    className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-[#CC1414]" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1">Contraseña</label>
+                  <input type="password" value={pass} onChange={e => setPass(e.target.value)} autoComplete="current-password"
+                    onKeyDown={e => { if (e.key === "Enter") entrar(); }}
+                    className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-[#CC1414]" />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button onClick={entrar} disabled={cargando || !email || !pass}
+                  className="px-4 py-2 text-sm bg-[#0D2B5E] text-white rounded hover:bg-[#1e3a8a] disabled:opacity-50 flex items-center gap-2">
+                  <Icon name={cargando ? "refresh" : "link"} className={cargando ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
+                  {cargando ? "Conectando…" : "Conectar"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Lista de proyectos */}
+          {sesion && !sel && (
+            <div>
+              {cargando && <div className="text-center py-8 text-sm text-slate-500">Cargando proyectos…</div>}
+              {!cargando && proyectos.length > 0 && (
+                <div className="border border-slate-200 rounded divide-y divide-slate-100 max-h-96 overflow-auto scrollbar-thin">
+                  {proyectos.map(p => {
+                    const tiene = Array.isArray(p?.datos?.resumen_partidas) && p.datos.resumen_partidas.length > 0;
+                    return (
+                      <button key={p.id} onClick={() => tiene && setSel(p)} disabled={!tiene}
+                        className={`w-full text-left px-4 py-3 transition flex items-center justify-between gap-3 ${tiene ? "hover:bg-slate-50" : "opacity-60 cursor-not-allowed"}`}>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-800 truncate">{p.nombre}</div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {p.cliente || "sin cliente"} · {fmtFecha(p.actualizado_en)}
+                            {p.total_uf ? ` · ${fmtNum(Number(p.total_uf), 0)} UF` : ""}
+                          </div>
+                        </div>
+                        {tiene
+                          ? <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded whitespace-nowrap">
+                              {p.datos.resumen_partidas.length} partidas
+                            </span>
+                          : <span className="text-[10px] uppercase tracking-wider text-amber-700 bg-amber-50 px-2 py-1 rounded whitespace-nowrap">Sin resumen</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+                Los proyectos marcados <strong>“Sin resumen”</strong> fueron guardados antes de activar el puente.
+                Ábrelos en el cubicador y vuelve a guardarlos en la nube para poder importarlos.
+              </div>
+            </div>
+          )}
+
+          {/* Detalle de partidas */}
+          {sesion && sel && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-[#0D2B5E] truncate">{sel.nombre}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{sel.cliente || "sin cliente"}</div>
+                </div>
+                <button onClick={() => setSel(null)} className="text-xs text-slate-500 hover:text-[#0D2B5E] underline whitespace-nowrap">
+                  Cambiar proyecto
+                </button>
+              </div>
+
+              <div className="border border-slate-200 rounded overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-2 py-2 w-8"></th>
+                      <th className="px-2 py-2 text-left font-semibold">Sistema</th>
+                      <th className="px-2 py-2 text-left font-semibold">Partida</th>
+                      <th className="px-2 py-2 text-left font-semibold w-14">Un</th>
+                      <th className="px-2 py-2 text-right font-semibold w-24">Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {partidas.map(p => (
+                      <tr key={p.idx} className={marcadas[p.idx] ? "" : "opacity-40"}>
+                        <td className="px-2 py-1.5 text-center">
+                          <input type="checkbox" checked={!!marcadas[p.idx]}
+                            onChange={e => setMarcadas(m => ({ ...m, [p.idx]: e.target.checked }))} />
+                        </td>
+                        <td className="px-2 py-1.5 text-slate-500">{p.capitulo}</td>
+                        <td className="px-2 py-1.5 text-slate-800">{p.descripcion}</td>
+                        <td className="px-2 py-1.5 text-slate-500">{p.unidad}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-slate-800">{fmtNum(p.cantidad, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-amber-50 border-l-4 border-amber-500 text-amber-900 text-[11px] px-3 py-2 rounded">
+                Se importan <strong>cantidades</strong>, no precios. Los precios unitarios quedan en 0 para que los
+                completes en el Ítem 2 según tu APU vigente.
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={onClose} className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded">
+                  Cancelar
+                </button>
+                <button onClick={confirmar} disabled={seleccionadas.length === 0}
+                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold disabled:opacity-50 flex items-center gap-2">
+                  <Icon name="download" className="w-4 h-4" />
+                  Importar {seleccionadas.length} {seleccionadas.length === 1 ? "partida" : "partidas"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuestas }) {
   const STORAGE_KEY = "soil_cotizacion_borrador_v2";
 
   // Cargar borrador si existe — migración silenciosa desde v1
@@ -2505,6 +2896,7 @@ function Cotizaciones({ ufClp, clientesUnicos, propuestas }) {
   const [cargandoHist, setCargandoHist] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error | offline
   const [showCatalogo, setShowCatalogo] = useState(false);
+  const [showImportCub, setShowImportCub] = useState(false);
   const [showHistorial, setShowHistorial] = useState(false);
   const [toast, setToast] = useState(null);
   const printRef = useRef(null);
@@ -2906,7 +3298,17 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
           {/* 2) Cliente */}
           <Seccion icon="users" title="Datos del Cliente / Destinatario" defaultOpen={true}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <CotField label="Razón Social"  value={cot.cliente.razon_social} onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, razon_social: v } }))} />
+              <ClienteSelect label="Razón Social" compact directorio={directorioClientes}
+                value={cot.cliente.razon_social}
+                onChange={(nombre, datos) => setCot(c => ({
+                  ...c,
+                  cliente: datos
+                    ? { ...c.cliente, razon_social: nombre,
+                        contacto: datos.contacto || c.cliente.contacto || "",
+                        email:    datos.email    || c.cliente.email    || "",
+                        telefono: datos.telefono || c.cliente.telefono || "" }
+                    : { ...c.cliente, razon_social: nombre }
+                }))} />
               <CotField label="RUT"           value={cot.cliente.rut}          onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, rut: v } }))} placeholder="76.xxx.xxx-x" />
               <CotField label="Contacto"      value={cot.cliente.contacto}     onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, contacto: v } }))} />
               <CotField label="Cargo"         value={cot.cliente.cargo}        onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, cargo: v } }))} />
@@ -2966,10 +3368,17 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs uppercase tracking-wider font-bold text-[#0D2B5E]">Ítem 2: Ejecución de los Trabajos ({(cot.item2_partidas||[]).length})</div>
-                <button onClick={() => setShowCatalogo(true)}
-                  className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
-                  <Icon name="plus" className="w-3 h-3" /> Agregar partida
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowImportCub(true)}
+                    title="Traer las cantidades del cuadro resumen del Cubicador de Entibaciones"
+                    className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-white border border-[#CC1414] text-[#CC1414] rounded hover:bg-rose-50 flex items-center gap-1">
+                    <Icon name="upload" className="w-3 h-3" /> Importar cubicación
+                  </button>
+                  <button onClick={() => setShowCatalogo(true)}
+                    className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
+                    <Icon name="plus" className="w-3 h-3" /> Agregar partida
+                  </button>
+                </div>
               </div>
               {(cot.item2_partidas||[]).length === 0 ? (
                 <div className="text-center py-6 text-slate-400 text-xs border border-dashed border-slate-300 rounded">
@@ -3301,6 +3710,17 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
           <CotizacionPreview cot={cot} totales={totales} ufClp={ufClp} />
         </div>
       </div>
+
+      {/* Modal: Importar cubicación desde el Cubicador de Entibaciones */}
+      {showImportCub && (
+        <ImportarCubicacionModal
+          onClose={() => setShowImportCub(false)}
+          onImportar={(nuevas) => {
+            setCot(c => ({ ...c, item2_partidas: [...(c.item2_partidas || []), ...nuevas] }));
+            flash(`${nuevas.length} ${nuevas.length === 1 ? "partida importada" : "partidas importadas"} del cubicador`);
+          }}
+        />
+      )}
 
       {/* Modal: Catálogo */}
       {showCatalogo && (

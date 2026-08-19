@@ -59,7 +59,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.2 · BUILD 2026-08-19</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.3 · BUILD 2026-08-19</div>
   </div>
 </div>
 
@@ -75,7 +75,7 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.2.2";
+const APP_VERSION = "v6.2.3";
 const APP_BUILD   = "2026-08-19";
 
 // ============================================================================
@@ -3610,8 +3610,14 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
         <div className="space-y-4">
           {/* Totales */}
           <div className="bg-gradient-to-br from-[#0D2B5E] to-[#1e3a8a] text-white rounded shadow-lg">
-            <div className="px-4 py-3 border-b border-blue-800 text-xs uppercase tracking-wider font-bold">
-              Totales
+            <div className="px-4 py-3 border-b border-blue-800">
+              <div className="text-xs uppercase tracking-wider font-bold">Totales</div>
+              {cot.proyecto && cot.proyecto.nombre && (
+                <div className="text-sm font-bold text-white mt-1 leading-snug break-words"
+                     title={cot.proyecto.nombre}>
+                  {cot.proyecto.nombre}
+                </div>
+              )}
             </div>
             <div className="p-5 space-y-3">
               <div className="flex justify-between items-baseline">

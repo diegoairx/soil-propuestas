@@ -59,7 +59,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.1 · BUILD 2026-08-19</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.2 · BUILD 2026-08-19</div>
   </div>
 </div>
 
@@ -75,7 +75,7 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.2.1";
+const APP_VERSION = "v6.2.2";
 const APP_BUILD   = "2026-08-19";
 
 // ============================================================================
@@ -3010,7 +3010,12 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
 
   // Cálculo indicador: Entibación MBA neto por m² (uso interno)
   const mbaKpi = useMemo(() => {
-    const partidasMBA = partidasPorCapitulo["Entibación tipo MBA"] || [];
+    // El monto UF sale del ítem 1 del Resumen por Capítulo, es decir el primer capítulo
+    // que aparece en el Ítem 2 (el de entibación, sea "Entibación tipo MBA",
+    // "Muro Berlinés Anclado" u otro nombre que venga del cubicador).
+    const entradas = Object.entries(partidasPorCapitulo);
+    const capitulo     = entradas.length ? entradas[0][0] : null;
+    const partidasMBA  = entradas.length ? entradas[0][1] : [];
     const totalUf = partidasMBA.reduce((s, p) => s + (Number(p.cantidad)||0) * (Number(p.precio_uf)||0), 0);
 
     // Los m² se toman de la Cubicación base (sección A), partida "Entablado de pino
@@ -3038,7 +3043,7 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
 
     const ufM2  = m2 > 0 ? totalUf / m2 : 0;
     const clpM2 = ufM2 * (ufClp || 38000);
-    return { partidas: partidasMBA.length, totalUf, m2, ufM2, clpM2, fuente: m2Auto > 0 ? fuente : null };
+    return { capitulo, partidas: partidasMBA.length, totalUf, m2, ufM2, clpM2, fuente: m2Auto > 0 ? fuente : null };
   }, [partidasPorCapitulo, cot.cubicacion, cot.mba_m2, ufClp]);
 
   // ===== Acciones =====
@@ -3680,18 +3685,24 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
                 )}
               </div>
               <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="text-slate-500 uppercase tracking-wider text-[10px] whitespace-nowrap">Capítulo 1</span>
+                  <span className="font-semibold text-slate-700 truncate text-right" title={mbaKpi.capitulo || ""}>
+                    {mbaKpi.capitulo || "—"}
+                  </span>
+                </div>
                 <div className="flex justify-between items-baseline">
-                  <span className="text-slate-500 uppercase tracking-wider text-[10px]">Partidas MBA</span>
+                  <span className="text-slate-500 uppercase tracking-wider text-[10px]">Partidas</span>
                   <span className="font-semibold text-slate-700">{mbaKpi.partidas}</span>
                 </div>
                 <div className="flex justify-between items-baseline">
-                  <span className="text-slate-500 uppercase tracking-wider text-[10px]">Total ítem MBA</span>
+                  <span className="text-slate-500 uppercase tracking-wider text-[10px]">Total capítulo</span>
                   <span className="font-semibold text-[#0D2B5E]">{fmtNum(mbaKpi.totalUf, 2)} UF</span>
                 </div>
               </div>
               <div className="pt-3 border-t border-slate-200 bg-gradient-to-br from-rose-50 to-white -mx-4 -mb-4 px-4 py-3 rounded-b">
                 {mbaKpi.partidas === 0 ? (
-                  <div className="text-center py-2 text-[11px] text-slate-400">Añade partidas de Entibación MBA al Ítem 2 para calcular</div>
+                  <div className="text-center py-2 text-[11px] text-slate-400">Añade partidas al Ítem 2 para calcular</div>
                 ) : mbaKpi.m2 <= 0 ? (
                   <div className="text-center py-2 text-[11px] text-amber-600">Falta la cantidad de entablado para calcular el neto/m²</div>
                 ) : (

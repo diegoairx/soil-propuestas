@@ -59,7 +59,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.0 · BUILD 2026-08-13</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.1 · BUILD 2026-08-19</div>
   </div>
 </div>
 
@@ -75,8 +75,8 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.2.0";
-const APP_BUILD   = "2026-08-13";
+const APP_VERSION = "v6.2.1";
+const APP_BUILD   = "2026-08-19";
 
 // ============================================================================
 // SUPABASE CONFIG — REEMPLAZAR CON TUS CREDENCIALES (paso 1.3 de la guía)
@@ -3012,11 +3012,34 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
   const mbaKpi = useMemo(() => {
     const partidasMBA = partidasPorCapitulo["Entibación tipo MBA"] || [];
     const totalUf = partidasMBA.reduce((s, p) => s + (Number(p.cantidad)||0) * (Number(p.precio_uf)||0), 0);
-    const m2 = Number(cot.mba_m2) || 0;
+
+    // Los m² se toman de la Cubicación base (sección A), partida "Entablado de pino
+    // entre perfiles". La cantidad viene como texto en formato chileno ("516,00",
+    // "7.935,00"), por eso se normaliza antes de convertir a número.
+    const parseCantidad = (v) => {
+      if (typeof v === "number") return v;
+      let s = String(v == null ? "" : v).trim().replace(/[^\d.,-]/g, "");
+      if (!s) return 0;
+      if (s.indexOf(",") !== -1) {
+        s = s.replace(/\./g, "").replace(",", ".");        // 7.935,00 → 7935.00
+      } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+        s = s.replace(/\./g, "");                           // 7.935 → 7935
+      }
+      return Number(s) || 0;
+    };
+    const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+    const candidatas = (cot.cubicacion || []).filter(r => norm(r.descripcion).indexOf("entablado") !== -1);
+    const fuente = candidatas.find(r => /m\s*²|m\s*2/i.test(r.unidad || "")) || candidatas[0] || null;
+
+    const m2Auto = fuente ? parseCantidad(fuente.cantidad) : 0;
+    const manual = Number(cot.mba_m2) || 0;
+    const m2 = m2Auto > 0 ? m2Auto : manual;
+
     const ufM2  = m2 > 0 ? totalUf / m2 : 0;
     const clpM2 = ufM2 * (ufClp || 38000);
-    return { partidas: partidasMBA.length, totalUf, m2, ufM2, clpM2 };
-  }, [partidasPorCapitulo, cot.mba_m2, ufClp]);
+    return { partidas: partidasMBA.length, totalUf, m2, ufM2, clpM2, fuente: m2Auto > 0 ? fuente : null };
+  }, [partidasPorCapitulo, cot.cubicacion, cot.mba_m2, ufClp]);
 
   // ===== Acciones =====
   const nuevaCotizacion = () => {
@@ -3623,14 +3646,38 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
             </div>
             <div className="p-4 space-y-3">
               <div>
-                <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">m² de muro MBA</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" step="0.01" value={cot.mba_m2 || ""}
-                    onChange={e => setCot(c => ({ ...c, mba_m2: parseFloat(e.target.value) || 0 }))}
-                    placeholder="Ej. 240"
-                    className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#CC1414] font-mono text-right" />
-                  <span className="text-xs text-slate-500 font-semibold">m²</span>
-                </div>
+                <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">
+                  m² de entablado
+                  <span className="ml-1 normal-case tracking-normal text-slate-400">· desde Cubicación base</span>
+                </label>
+                {mbaKpi.fuente ? (
+                  <div className="bg-slate-50 border border-slate-200 rounded px-2 py-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500 whitespace-nowrap">
+                        Ítem {mbaKpi.fuente.n} · {mbaKpi.fuente.unidad}
+                      </span>
+                      <span className="font-mono text-sm font-bold text-[#0D2B5E] whitespace-nowrap">
+                        {fmtNum(mbaKpi.m2, 2)} m²
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate mt-0.5" title={mbaKpi.fuente.descripcion}>
+                      {mbaKpi.fuente.descripcion}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="0" step="0.01" value={cot.mba_m2 || ""}
+                        onChange={e => setCot(c => ({ ...c, mba_m2: parseFloat(e.target.value) || 0 }))}
+                        placeholder="Ej. 240"
+                        className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#CC1414] font-mono text-right" />
+                      <span className="text-xs text-slate-500 font-semibold">m²</span>
+                    </div>
+                    <div className="text-[10px] text-amber-600 leading-snug">
+                      No hay partida de entablado en la Cubicación base (sección A). Agrégala allí o ingresa los m² a mano.
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
                 <div className="flex justify-between items-baseline">
@@ -3646,7 +3693,7 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
                 {mbaKpi.partidas === 0 ? (
                   <div className="text-center py-2 text-[11px] text-slate-400">Añade partidas de Entibación MBA al Ítem 2 para calcular</div>
                 ) : mbaKpi.m2 <= 0 ? (
-                  <div className="text-center py-2 text-[11px] text-amber-600">Ingresa los m² de muro para ver el neto/m²</div>
+                  <div className="text-center py-2 text-[11px] text-amber-600">Falta la cantidad de entablado para calcular el neto/m²</div>
                 ) : (
                   <div className="text-center">
                     <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Neto por m²</div>

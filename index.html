@@ -29,6 +29,8 @@
 
 <!-- Exportación PDF para Cotizaciones -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<!-- SheetJS: exportación de estados de pago a .xlsx editable -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
   body { margin:0; background:#ffffff; font-family:'Inter',system-ui,sans-serif; }
@@ -59,7 +61,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.2.4 · BUILD 2026-08-21</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.0 · BUILD 2026-08-21</div>
   </div>
 </div>
 
@@ -75,7 +77,7 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.2.4";
+const APP_VERSION = "v6.3.0";
 const APP_BUILD   = "2026-08-21";
 
 // ============================================================================
@@ -1128,6 +1130,7 @@ function App() {
             { id: "dashboard",   label: "Dashboard",   icon: "chart" },
             { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
             { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
+            { id: "estadospago", label: "Estados de Pago", icon: "dollar" },
             { id: "insights",    label: "Insights",    icon: "zap" },
             { id: "informe",     label: "Informe",     icon: "file" }
           ].map(t => (
@@ -1158,6 +1161,7 @@ function App() {
           expandedRow={expandedRow} setExpandedRow={setExpandedRow}
         />}
         {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} directorioClientes={directorioClientes} propuestas={data} />}
+        {tab === "estadospago" && <EstadosPago ufClp={ufClp} directorioClientes={directorioClientes} propuestas={data} />}
         {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
         {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
@@ -4696,6 +4700,951 @@ function CotizacionesDePropuesta({ propuestaId, ufClp }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ============================================================================
+// ESTADOS DE PAGO — generador para cobro de servicios al mandante
+// Replica la estructura de las planillas Soil: itemizado contractual +
+// avance anterior / del período / acumulado, y bloque de totales con
+// retención, devolución de anticipo, otros descuentos e IVA.
+// ============================================================================
+const EP_ESTADOS = ["Borrador", "Emitido", "Aprobado", "Facturado", "Pagado", "Anulado"];
+
+const EP_VACIO = () => ({
+  numero_ep: 1, revision: "0",
+  proyecto: "", cliente: "", cliente_rut: "", referencia: "",
+  periodo: "", fecha: new Date().toISOString().slice(0, 10),
+  moneda: "UF", uf_clp: 0,
+  cotizacion_id: null, propuesta_id: null,
+  retencion_pct: 0.05, anticipo_monto: 0, anticipo_dev_pct: 0,
+  otros_descuentos: 0, otros_glosa: "Otros descuentos",
+  iva_pct: 0.19, estado: "Borrador",
+  partidas: [],
+  firma_soil: "Diego Illanes R.", cargo_soil: "Operaciones",
+  firma_cliente: "", cargo_cliente: "ITO",
+  notas: ""
+});
+
+const epNuevaPartida = (p = {}) => ({
+  id: Date.now() + Math.random(),
+  item: p.item || "",
+  capitulo: p.capitulo || "",
+  descripcion: p.descripcion || "",
+  unidad: p.unidad || "GL",
+  cantidad: Number(p.cantidad) || 0,
+  precio: Number(p.precio) || 0,
+  cant_ant: Number(p.cant_ant) || 0,
+  cant_per: Number(p.cant_per) || 0
+});
+
+// Cálculo de una partida y de los totales del estado de pago
+function epCalcular(ep) {
+  const partidas = (ep.partidas || []).map((p, i) => {
+    const cantidad = Number(p.cantidad) || 0;
+    const precio   = Number(p.precio) || 0;
+    const cantAnt  = Number(p.cant_ant) || 0;
+    const cantPer  = Number(p.cant_per) || 0;
+    const cantAcum = cantAnt + cantPer;
+    const total    = cantidad * precio;
+    const pc = (c) => (cantidad > 0 ? c / cantidad : 0);
+    return {
+      ...p,
+      _n: p.item || String(i + 1),
+      total,
+      cantAcum,
+      pctAnt: pc(cantAnt), pctPer: pc(cantPer), pctAcum: pc(cantAcum),
+      montoAnt: cantAnt * precio,
+      montoPer: cantPer * precio,
+      montoAcum: cantAcum * precio,
+      saldo: total - cantAcum * precio
+    };
+  });
+
+  const sum = (k) => partidas.reduce((s, p) => s + (p[k] || 0), 0);
+  const totalContrato = sum("total");
+  const anterior      = sum("montoAnt");
+  const periodo       = sum("montoPer");
+  const acumulado     = sum("montoAcum");
+  const saldo         = totalContrato - acumulado;
+
+  const retencion   = periodo * (Number(ep.retencion_pct) || 0);
+  const devAnticipo = periodo * (Number(ep.anticipo_dev_pct) || 0);
+  const otros       = Number(ep.otros_descuentos) || 0;
+  const neto        = periodo - retencion - devAnticipo - otros;
+  const iva         = neto * (Number(ep.iva_pct) || 0);
+  const totalPagar  = neto + iva;
+
+  const retencionAcum = acumulado * (Number(ep.retencion_pct) || 0);
+  const pctAvance     = totalContrato > 0 ? acumulado / totalContrato : 0;
+  const pctPeriodo    = totalContrato > 0 ? periodo / totalContrato : 0;
+
+  return { partidas, totalContrato, anterior, periodo, acumulado, saldo,
+           retencion, devAnticipo, otros, neto, iva, totalPagar,
+           retencionAcum, pctAvance, pctPeriodo };
+}
+
+// ---------------------------------------------------------------------------
+// Vista imprimible del estado de pago (se usa para PDF y como vista previa)
+// ---------------------------------------------------------------------------
+function EPPreview({ ep, calc }) {
+  const esUF = ep.moneda === "UF";
+  const uf   = Number(ep.uf_clp) || 0;
+  const sim  = esUF ? "UF" : "$";
+  const nm   = (v, d) => fmtNum(v, d === undefined ? (esUF ? 2 : 0) : d);
+  const pct  = (v) => fmtNum((v || 0) * 100, 1) + "%";
+  const enClp = (v) => (esUF && uf > 0 ? "$" + fmtNum(v * uf, 0) : null);
+
+  const S = {
+    page: { fontFamily: "'Inter',Arial,sans-serif", color: "#1f2937", fontSize: "9px", padding: "14px 16px", background: "#fff", width: "297mm", boxSizing: "border-box" },
+    th: { border: "1px solid #94a3b8", background: "#0D2B5E", color: "#fff", padding: "4px 3px", fontSize: "8px", fontWeight: 700, textAlign: "center" },
+    td: { border: "1px solid #cbd5e1", padding: "3px", fontSize: "8px", verticalAlign: "middle" },
+    num: { border: "1px solid #cbd5e1", padding: "3px", fontSize: "8px", textAlign: "right", fontFamily: "monospace" },
+    cap: { border: "1px solid #cbd5e1", padding: "3px", fontSize: "8px", background: "#fef2f2", color: "#0D2B5E", fontWeight: 700 },
+    lbl: { fontSize: "7.5px", textTransform: "uppercase", letterSpacing: "0.06em", color: "#64748b" },
+    val: { fontSize: "10px", fontWeight: 700, color: "#0D2B5E" }
+  };
+
+  const filas = [];
+  let capActual = null;
+  calc.partidas.forEach((p) => {
+    if (p.capitulo && p.capitulo !== capActual) {
+      capActual = p.capitulo;
+      filas.push(<tr key={"c" + p.id}><td style={S.cap} colSpan={14}>{capActual}</td></tr>);
+    }
+    filas.push(
+      <tr key={p.id}>
+        <td style={{ ...S.td, textAlign: "center" }}>{p._n}</td>
+        <td style={S.td}>{p.descripcion}</td>
+        <td style={{ ...S.td, textAlign: "center" }}>{p.unidad}</td>
+        <td style={S.num}>{fmtNum(p.cantidad, 2)}</td>
+        <td style={S.num}>{nm(p.precio)}</td>
+        <td style={S.num}>{nm(p.total)}</td>
+        <td style={S.num}>{fmtNum(p.cant_ant, 2)}</td>
+        <td style={S.num}>{pct(p.pctAnt)}</td>
+        <td style={S.num}>{fmtNum(p.cant_per, 2)}</td>
+        <td style={S.num}>{pct(p.pctPer)}</td>
+        <td style={S.num}>{fmtNum(p.cantAcum, 2)}</td>
+        <td style={S.num}>{pct(p.pctAcum)}</td>
+        <td style={{ ...S.num, fontWeight: 700, color: "#0D2B5E" }}>{nm(p.montoPer)}</td>
+        <td style={S.num}>{nm(p.saldo)}</td>
+      </tr>
+    );
+  });
+
+  const totalRow = (glosa, valor, opts = {}) => (
+    <tr>
+      <td style={{ padding: "3px 6px", fontSize: "8.5px", color: opts.strong ? "#0D2B5E" : "#475569", fontWeight: opts.strong ? 700 : 400, borderTop: opts.top ? "1px solid #cbd5e1" : "none" }}>
+        {glosa}
+      </td>
+      <td style={{ padding: "3px 6px", fontSize: opts.big ? "12px" : "9px", textAlign: "right", fontFamily: "monospace", fontWeight: opts.strong ? 700 : 400, color: opts.strong ? "#CC1414" : "#0f172a", borderTop: opts.top ? "1px solid #cbd5e1" : "none" }}>
+        {sim} {nm(valor)}
+      </td>
+      <td style={{ padding: "3px 6px", fontSize: "7.5px", textAlign: "right", color: "#64748b", borderTop: opts.top ? "1px solid #cbd5e1" : "none" }}>
+        {enClp(valor) || ""}
+      </td>
+    </tr>
+  );
+
+  return (
+    <div style={S.page}>
+      {/* Encabezado con logo */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", borderBottom: "2px solid #CC1414", paddingBottom: "8px", marginBottom: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ width: "42px", height: "42px", background: "#CC1414", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Barlow Condensed',Impact,sans-serif", fontSize: "28px", fontWeight: 900, borderRadius: "3px" }}>S</div>
+          <div>
+            <div style={{ fontFamily: "'Barlow Condensed',Impact,sans-serif", fontSize: "19px", fontWeight: 900, color: "#0D2B5E", lineHeight: 1 }}>SOIL LIMITADA</div>
+            <div style={{ fontSize: "7.5px", color: "#64748b", letterSpacing: "0.08em" }}>SOCIEDAD CONSTRUCTORA E INVERSIONES · OBRAS PREVIAS</div>
+            <div style={{ fontSize: "7.5px", color: "#64748b" }}>RUT 76.495.833-0 · www.soilconstructora.cl</div>
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: "'Barlow Condensed',Impact,sans-serif", fontSize: "20px", fontWeight: 900, color: "#0D2B5E", lineHeight: 1 }}>
+            ESTADO DE PAGO N°{ep.numero_ep}
+          </div>
+          <div style={{ fontSize: "8px", color: "#64748b" }}>Revisión {ep.revision || "0"} · {ep.estado}</div>
+        </div>
+      </div>
+
+      {/* Datos del contrato */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px" }}>
+        <tbody>
+          <tr>
+            <td style={{ width: "34%", padding: "2px 0" }}><div style={S.lbl}>Mandante / Cliente</div><div style={S.val}>{ep.cliente || "—"}</div></td>
+            <td style={{ width: "40%", padding: "2px 0" }}><div style={S.lbl}>Proyecto / Contrato</div><div style={S.val}>{ep.proyecto || "—"}</div></td>
+            <td style={{ padding: "2px 0" }}><div style={S.lbl}>Fecha de emisión</div><div style={S.val}>{ep.fecha}</div></td>
+          </tr>
+          <tr>
+            <td style={{ padding: "2px 0" }}><div style={S.lbl}>RUT</div><div style={{ fontSize: "9px" }}>{ep.cliente_rut || "—"}</div></td>
+            <td style={{ padding: "2px 0" }}><div style={S.lbl}>Referencia</div><div style={{ fontSize: "9px" }}>{ep.referencia || "—"}</div></td>
+            <td style={{ padding: "2px 0" }}>
+              <div style={S.lbl}>Período · Moneda</div>
+              <div style={{ fontSize: "9px" }}>
+                {ep.periodo || "—"} · {ep.moneda}
+                {esUF && uf > 0 ? ` (UF $${fmtNum(uf, 2)})` : ""}
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Itemizado */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px" }}>
+        <thead>
+          <tr>
+            <th style={{ ...S.th, width: "3%" }} rowSpan={2}>ÍTEM</th>
+            <th style={{ ...S.th, width: "24%" }} rowSpan={2}>DESCRIPCIÓN DE LA PARTIDA</th>
+            <th style={{ ...S.th, width: "4%" }} rowSpan={2}>UN</th>
+            <th style={S.th} colSpan={3}>CONTRACTUAL</th>
+            <th style={S.th} colSpan={2}>AVANCE ANTERIOR</th>
+            <th style={S.th} colSpan={2}>AVANCE DEL PERÍODO</th>
+            <th style={S.th} colSpan={2}>AVANCE ACUMULADO</th>
+            <th style={{ ...S.th, width: "9%" }} rowSpan={2}>A PAGO {sim}</th>
+            <th style={{ ...S.th, width: "8%" }} rowSpan={2}>SALDO {sim}</th>
+          </tr>
+          <tr>
+            <th style={S.th}>CANT.</th><th style={S.th}>P. UNIT.</th><th style={S.th}>TOTAL</th>
+            <th style={S.th}>CANT.</th><th style={S.th}>%</th>
+            <th style={S.th}>CANT.</th><th style={S.th}>%</th>
+            <th style={S.th}>CANT.</th><th style={S.th}>%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.length ? filas : (
+            <tr><td style={{ ...S.td, textAlign: "center", color: "#94a3b8" }} colSpan={14}>Sin partidas</td></tr>
+          )}
+          <tr>
+            <td style={{ ...S.td, background: "#0D2B5E", color: "#fff", fontWeight: 700 }} colSpan={5}>TOTAL CONTRATO</td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff", fontWeight: 700 }}>{nm(calc.totalContrato)}</td>
+            <td style={{ ...S.td, background: "#0D2B5E" }}></td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff" }}>{pct(calc.totalContrato > 0 ? calc.anterior / calc.totalContrato : 0)}</td>
+            <td style={{ ...S.td, background: "#0D2B5E" }}></td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff" }}>{pct(calc.pctPeriodo)}</td>
+            <td style={{ ...S.td, background: "#0D2B5E" }}></td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff" }}>{pct(calc.pctAvance)}</td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff", fontWeight: 700 }}>{nm(calc.periodo)}</td>
+            <td style={{ ...S.num, background: "#0D2B5E", color: "#fff" }}>{nm(calc.saldo)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Resumen económico */}
+      <div style={{ display: "flex", gap: "12px", marginBottom: "12px" }}>
+        <div style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: "3px", padding: "8px" }}>
+          <div style={{ ...S.lbl, marginBottom: "4px" }}>Avance económico</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {totalRow("Total contrato", calc.totalContrato)}
+              {totalRow("Acumulado anterior", calc.anterior)}
+              {totalRow("Avance del período", calc.periodo, { strong: true })}
+              {totalRow("Acumulado a la fecha", calc.acumulado, { top: true })}
+              {totalRow("Saldo por ejecutar", calc.saldo)}
+              <tr>
+                <td style={{ padding: "3px 6px", fontSize: "8.5px", color: "#475569", borderTop: "1px solid #cbd5e1" }}>Avance acumulado</td>
+                <td colSpan={2} style={{ padding: "3px 6px", fontSize: "10px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, color: "#0D2B5E", borderTop: "1px solid #cbd5e1" }}>
+                  {pct(calc.pctAvance)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{ flex: 1, border: "1px solid #0D2B5E", borderRadius: "3px", padding: "8px" }}>
+          <div style={{ ...S.lbl, marginBottom: "4px" }}>Liquidación del presente estado de pago</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {totalRow("(=) Avance del período", calc.periodo)}
+              {totalRow(`(−) Retención ${pct(ep.retencion_pct)}`, calc.retencion)}
+              {ep.anticipo_dev_pct > 0 && totalRow(`(−) Devolución anticipo ${pct(ep.anticipo_dev_pct)}`, calc.devAnticipo)}
+              {calc.otros > 0 && totalRow("(−) " + (ep.otros_glosa || "Otros descuentos"), calc.otros)}
+              {totalRow("Total neto", calc.neto, { top: true, strong: true })}
+              {totalRow(`(+) IVA ${pct(ep.iva_pct)}`, calc.iva)}
+              {totalRow("TOTAL A PAGAR", calc.totalPagar, { top: true, strong: true, big: true })}
+              {totalRow("Retención acumulada", calc.retencionAcum, { top: true })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {ep.notas && (
+        <div style={{ border: "1px solid #cbd5e1", borderRadius: "3px", padding: "6px 8px", marginBottom: "12px" }}>
+          <div style={S.lbl}>Observaciones</div>
+          <div style={{ fontSize: "8.5px", whiteSpace: "pre-wrap" }}>{ep.notas}</div>
+        </div>
+      )}
+
+      {/* Firmas */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "22px" }}>
+        <tbody>
+          <tr>
+            <td style={{ width: "50%", textAlign: "center", padding: "0 24px" }}>
+              <div style={{ borderTop: "1px solid #475569", paddingTop: "4px", fontSize: "9px", fontWeight: 700 }}>{ep.firma_soil || ""}</div>
+              <div style={{ fontSize: "8px", color: "#64748b" }}>{ep.cargo_soil || ""}</div>
+              <div style={{ fontSize: "8px", color: "#0D2B5E", fontWeight: 700, marginTop: "2px" }}>Soil Limitada</div>
+            </td>
+            <td style={{ width: "50%", textAlign: "center", padding: "0 24px" }}>
+              <div style={{ borderTop: "1px solid #475569", paddingTop: "4px", fontSize: "9px", fontWeight: 700 }}>{ep.firma_cliente || ""}</div>
+              <div style={{ fontSize: "8px", color: "#64748b" }}>{ep.cargo_cliente || ""}</div>
+              <div style={{ fontSize: "8px", color: "#0D2B5E", fontWeight: 700, marginTop: "2px" }}>{ep.cliente || ""}</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generador de Estados de Pago
+// ---------------------------------------------------------------------------
+function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
+  const [ep, setEp]                 = useState(EP_VACIO);
+  const [epId, setEpId]             = useState(null);
+  const [historial, setHistorial]   = useState([]);
+  const [cotizaciones, setCotiz]    = useState([]);
+  const [showHist, setShowHist]     = useState(false);
+  const [showCargar, setShowCargar] = useState(false);
+  const [sync, setSync]             = useState("idle");
+  const [toast, setToast]           = useState(null);
+  const printRef = useRef(null);
+
+  const supaOn = !!db;
+  const flash = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
+  const calc  = useMemo(() => epCalcular(ep), [ep]);
+  const esUF  = ep.moneda === "UF";
+  const uf    = Number(ep.uf_clp) || 0;
+  const sim   = esUF ? "UF" : "$";
+  const nm    = (v) => fmtNum(v, esUF ? 2 : 0);
+  const enClp = (v) => (esUF && uf > 0 ? "$" + fmtNum(v * uf, 0) : null);
+
+  // Al abrir, precargar la UF del dashboard si el EP es nuevo
+  useEffect(() => {
+    if (!ep.uf_clp && ufClp) setEp(e => ({ ...e, uf_clp: ufClp }));
+  }, []);
+
+  const cargarHistorial = async () => {
+    if (!supaOn) return;
+    const { data, error } = await db.from("estados_pago")
+      .select("id,numero_ep,revision,proyecto,cliente,fecha,periodo,moneda,estado,total_contrato,avance_periodo,total_pagar,updated_at")
+      .order("updated_at", { ascending: false });
+    if (!error) setHistorial(data || []);
+  };
+  const cargarCotizaciones = async () => {
+    if (!supaOn) return;
+    const { data, error } = await db.from("cotizaciones")
+      .select("id,numero,fecha,cliente_razon_social,proyecto_nombre,total_uf,data")
+      .order("updated_at", { ascending: false });
+    if (!error) setCotiz(data || []);
+  };
+  useEffect(() => { cargarHistorial(); cargarCotizaciones(); }, []);
+
+  // ===== Partidas =====
+  const addPartida = () => setEp(e => ({ ...e, partidas: [...e.partidas, epNuevaPartida({ item: String(e.partidas.length + 1) })] }));
+  const updPartida = (id, patch) => setEp(e => ({ ...e, partidas: e.partidas.map(p => p.id === id ? { ...p, ...patch } : p) }));
+  const delPartida = (id) => setEp(e => ({ ...e, partidas: e.partidas.filter(p => p.id !== id) }));
+  const moverPartida = (id, dir) => setEp(e => {
+    const arr = [...e.partidas]; const i = arr.findIndex(p => p.id === id); const j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return e;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    return { ...e, partidas: arr };
+  });
+
+  // ===== Cargar itemizado desde una cotización guardada =====
+  const cargarDesdeCotizacion = (c) => {
+    const d = c.data || {};
+    const items = [...(d.item1_partidas || []), ...(d.item2_partidas || [])];
+    const partidas = items.map((p, i) => epNuevaPartida({
+      item: p.item || String(i + 1),
+      capitulo: p.capitulo || "",
+      descripcion: p.descripcion || "",
+      unidad: p.unidad || "GL",
+      cantidad: Number(p.cantidad) || 0,
+      precio: Number(p.precio_uf) || 0
+    }));
+    setEp(e => ({
+      ...e,
+      cotizacion_id: c.id,
+      proyecto: d.proyecto?.nombre || c.proyecto_nombre || e.proyecto,
+      cliente: d.cliente?.razon_social || c.cliente_razon_social || e.cliente,
+      cliente_rut: d.cliente?.rut || e.cliente_rut,
+      referencia: e.referencia || ("Cotización " + (c.numero || "")),
+      moneda: "UF",
+      partidas
+    }));
+    setShowCargar(false);
+    flash(`${partidas.length} partidas cargadas desde ${c.numero}`);
+  };
+
+  // ===== Traer el acumulado del EP anterior del mismo proyecto =====
+  const traerAvanceAnterior = async () => {
+    if (!supaOn) { flash("Sin conexión a la base", "err"); return; }
+    if (!ep.proyecto.trim()) { flash("Escribe primero el nombre del proyecto", "err"); return; }
+    const { data, error } = await db.from("estados_pago")
+      .select("numero_ep,revision,data")
+      .ilike("proyecto", ep.proyecto.trim())
+      .order("numero_ep", { ascending: false })
+      .limit(1);
+    if (error) { flash("Error: " + error.message, "err"); return; }
+    if (!data || !data.length) { flash("No hay estados de pago previos para este proyecto"); return; }
+    const prev = data[0];
+    const prevPartidas = prev.data?.partidas || [];
+    const mapa = {};
+    prevPartidas.forEach(p => {
+      const k = (p.descripcion || "").trim().toLowerCase();
+      if (k) mapa[k] = (Number(p.cant_ant) || 0) + (Number(p.cant_per) || 0);
+    });
+    let tocadas = 0;
+    setEp(e => ({
+      ...e,
+      numero_ep: Number(prev.numero_ep) + 1,
+      partidas: e.partidas.map(p => {
+        const k = (p.descripcion || "").trim().toLowerCase();
+        if (mapa[k] !== undefined) { tocadas++; return { ...p, cant_ant: mapa[k], cant_per: 0 }; }
+        return p;
+      })
+    }));
+    flash(`EP N°${Number(prev.numero_ep) + 1}: ${tocadas} partidas con avance anterior`);
+  };
+
+  // ===== Guardar =====
+  const guardar = async () => {
+    if (!ep.proyecto.trim()) { flash("El proyecto es obligatorio", "err"); return; }
+    if (!supaOn) { flash("Sin conexión a la base", "err"); return; }
+    setSync("saving");
+    const fila = {
+      numero_ep: Number(ep.numero_ep) || 1,
+      revision: ep.revision || "0",
+      proyecto: ep.proyecto.trim(),
+      cliente: ep.cliente || null,
+      cliente_rut: ep.cliente_rut || null,
+      referencia: ep.referencia || null,
+      periodo: ep.periodo || null,
+      fecha: ep.fecha || null,
+      moneda: ep.moneda,
+      uf_clp: Number(ep.uf_clp) || 0,
+      cotizacion_id: ep.cotizacion_id || null,
+      retencion_pct: Number(ep.retencion_pct) || 0,
+      anticipo_monto: Number(ep.anticipo_monto) || 0,
+      anticipo_dev_pct: Number(ep.anticipo_dev_pct) || 0,
+      otros_descuentos: Number(ep.otros_descuentos) || 0,
+      iva_pct: Number(ep.iva_pct) || 0,
+      total_contrato: calc.totalContrato,
+      avance_anterior: calc.anterior,
+      avance_periodo: calc.periodo,
+      avance_acumulado: calc.acumulado,
+      total_pagar: calc.totalPagar,
+      estado: ep.estado || "Borrador",
+      data: ep,
+      notas_internas: ep.notas || null
+    };
+    const q = epId
+      ? db.from("estados_pago").update(fila).eq("id", epId).select("id").single()
+      : db.from("estados_pago").insert(fila).select("id").single();
+    const { data, error } = await q;
+    if (error) { setSync("error"); flash("Error al guardar: " + error.message, "err"); return; }
+    setEpId(data.id); setSync("saved");
+    flash(`Estado de pago N°${fila.numero_ep} guardado`);
+    cargarHistorial();
+    setTimeout(() => setSync("idle"), 1800);
+  };
+
+  const abrirDelHistorial = async (row) => {
+    const { data, error } = await db.from("estados_pago").select("id,data").eq("id", row.id).single();
+    if (error) { flash("No se pudo abrir", "err"); return; }
+    setEp({ ...EP_VACIO(), ...(data.data || {}) });
+    setEpId(data.id); setShowHist(false);
+    flash(`EP N°${row.numero_ep} abierto`);
+  };
+
+  const nuevoEP = () => {
+    if (ep.partidas.length && !confirm("¿Descartar el estado de pago actual y empezar uno nuevo?")) return;
+    setEp({ ...EP_VACIO(), uf_clp: ufClp || 0 }); setEpId(null);
+  };
+
+  const eliminarDelHistorial = async (row) => {
+    if (!confirm(`¿Eliminar el EP N°${row.numero_ep} de ${row.proyecto}? Esta acción no se puede deshacer.`)) return;
+    const { error } = await db.from("estados_pago").delete().eq("id", row.id);
+    if (error) { flash("No se pudo eliminar: " + error.message, "err"); return; }
+    if (epId === row.id) { setEpId(null); }
+    flash("Estado de pago eliminado");
+    cargarHistorial();
+  };
+
+  // ===== Exportar PDF =====
+  const exportarPDF = async () => {
+    if (!printRef.current) return;
+    if (!window.html2pdf) { flash("Librería PDF no cargó. Refresca la página.", "err"); return; }
+    flash("Generando PDF...");
+    const nombre = `EP_N${ep.numero_ep}_${(ep.proyecto || "Proyecto").replace(/[^\w]+/g, "_")}.pdf`;
+    try {
+      await window.html2pdf().set({
+        margin: [8, 8, 10, 8],
+        filename: nombre,
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] }
+      }).from(printRef.current).save();
+      flash("PDF descargado");
+    } catch (e) { flash("Error generando PDF: " + e.message, "err"); }
+  };
+
+  // ===== Exportar XLSX editable (con fórmulas) =====
+  const exportarXLSX = () => {
+    if (!window.XLSX) { flash("Librería Excel no cargó. Refresca la página.", "err"); return; }
+    const X = window.XLSX;
+    const M = ep.moneda;
+    const aoa = [
+      ["SOIL LIMITADA · SOCIEDAD CONSTRUCTORA E INVERSIONES"],
+      ["RUT 76.495.833-0 · www.soilconstructora.cl"],
+      [],
+      ["ESTADO DE PAGO N°", ep.numero_ep, "Revisión", ep.revision || "0", "", "Fecha", ep.fecha],
+      ["Mandante / Cliente", ep.cliente || "", "", "", "", "RUT", ep.cliente_rut || ""],
+      ["Proyecto / Contrato", ep.proyecto || ""],
+      ["Referencia", ep.referencia || "", "", "", "", "Período", ep.periodo || ""],
+      ["Moneda", M, "", "", "", "Valor UF", Number(ep.uf_clp) || 0],
+      [],
+      ["ÍTEM", "DESCRIPCIÓN DE LA PARTIDA", "UN", "CANT. CONTRATO", "P. UNIT. " + M, "TOTAL " + M,
+       "CANT. ANT.", "% ANT.", "CANT. PERÍODO", "% PERÍODO", "CANT. ACUM.", "% ACUM.",
+       "A PAGO " + M, "ACUM. " + M, "SALDO " + M]
+    ];
+    const filaInicio = aoa.length + 1;                      // 1-indexed en la hoja
+    calc.partidas.forEach((p, i) => {
+      const r = filaInicio + i;
+      aoa.push([
+        p._n, p.descripcion, p.unidad,
+        Number(p.cantidad) || 0, Number(p.precio) || 0,
+        { t: "n", f: `D${r}*E${r}` },
+        Number(p.cant_ant) || 0,
+        { t: "n", f: `IF(D${r}=0,0,G${r}/D${r})`, z: "0.0%" },
+        Number(p.cant_per) || 0,
+        { t: "n", f: `IF(D${r}=0,0,I${r}/D${r})`, z: "0.0%" },
+        { t: "n", f: `G${r}+I${r}` },
+        { t: "n", f: `IF(D${r}=0,0,K${r}/D${r})`, z: "0.0%" },
+        { t: "n", f: `I${r}*E${r}` },
+        { t: "n", f: `K${r}*E${r}` },
+        { t: "n", f: `F${r}-N${r}` }
+      ]);
+    });
+    const filaFin = filaInicio + calc.partidas.length - 1;
+    const rango = calc.partidas.length ? `${filaInicio}:${filaFin}` : `${filaInicio}:${filaInicio}`;
+    const sumar = (col) => ({ t: "n", f: `SUM(${col}${rango.split(":")[0]}:${col}${rango.split(":")[1]})` });
+    aoa.push(["", "TOTAL CONTRATO", "", "", "", sumar("F"), "", "", "", "", "", "", sumar("M"), sumar("N"), sumar("O")]);
+    const rTot = filaInicio + calc.partidas.length;
+
+    aoa.push([]);
+    const rL = aoa.length + 1;                              // primera fila de liquidación
+    aoa.push(["", "LIQUIDACIÓN DEL PRESENTE ESTADO DE PAGO"]);
+    aoa.push(["", "(=) Avance del período", "", { t: "n", f: `M${rTot}` }]);
+    aoa.push(["", "(−) Retención", Number(ep.retencion_pct) || 0, { t: "n", f: `D${rL + 2}*C${rL + 2}` }]);
+    aoa.push(["", "(−) Devolución anticipo", Number(ep.anticipo_dev_pct) || 0, { t: "n", f: `D${rL + 2}*C${rL + 3}` }]);
+    aoa.push(["", "(−) " + (ep.otros_glosa || "Otros descuentos"), "", Number(ep.otros_descuentos) || 0]);
+    aoa.push(["", "TOTAL NETO", "", { t: "n", f: `D${rL + 2}-D${rL + 3}-D${rL + 4}-D${rL + 5}` }]);
+    aoa.push(["", "(+) IVA", Number(ep.iva_pct) || 0, { t: "n", f: `D${rL + 6}*C${rL + 7}` }]);
+    aoa.push(["", "TOTAL A PAGAR", "", { t: "n", f: `D${rL + 6}+D${rL + 7}` }]);
+    aoa.push(["", "Retención acumulada", "", { t: "n", f: `N${rTot}*C${rL + 3}` }]);
+    aoa.push([]);
+    aoa.push(["", ep.firma_soil || "", "", "", "", "", ep.firma_cliente || ""]);
+    aoa.push(["", ep.cargo_soil || "", "", "", "", "", ep.cargo_cliente || ""]);
+    aoa.push(["", "Soil Limitada", "", "", "", "", ep.cliente || ""]);
+
+    const ws = X.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 7 }, { wch: 46 }, { wch: 6 }, { wch: 13 }, { wch: 12 }, { wch: 14 },
+                   { wch: 11 }, { wch: 9 }, { wch: 13 }, { wch: 10 }, { wch: 12 }, { wch: 9 },
+                   { wch: 14 }, { wch: 14 }, { wch: 14 }];
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }];
+    const wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, `EP N${ep.numero_ep}`);
+    X.writeFile(wb, `EP_N${ep.numero_ep}_${(ep.proyecto || "Proyecto").replace(/[^\w]+/g, "_")}.xlsx`);
+    flash("Excel descargado (con fórmulas editables)");
+  };
+
+  const F = ({ label, children, className = "" }) => (
+    <div className={className}>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+  const inp = "w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]";
+
+  return (
+    <div className="space-y-6">
+      {toast && (
+        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded shadow-lg border-l-4 text-sm font-medium
+          ${toast.type === "err" ? "bg-rose-50 border-rose-600 text-rose-900" : "bg-emerald-50 border-emerald-600 text-emerald-900"}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Cabecera */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="display-font text-3xl font-black text-[#0D2B5E] tracking-tight">ESTADOS DE PAGO</h2>
+          <p className="text-sm text-slate-500">Avance de servicios prestados para cobro al mandante</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={nuevoEP} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50 flex items-center gap-2">
+            <Icon name="plus" /> Nuevo
+          </button>
+          <button onClick={() => { cargarCotizaciones(); setShowCargar(true); }} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-[#CC1414] text-[#CC1414] rounded hover:bg-rose-50 flex items-center gap-2">
+            <Icon name="upload" /> Desde cotización
+          </button>
+          <button onClick={() => { cargarHistorial(); setShowHist(true); }} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-slate-300 rounded hover:bg-slate-50 flex items-center gap-2">
+            <Icon name="layers" /> Historial ({historial.length})
+          </button>
+          <button onClick={guardar} disabled={sync === "saving"} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-white border border-[#0D2B5E] text-[#0D2B5E] rounded hover:bg-blue-50 flex items-center gap-2 disabled:opacity-60">
+            <Icon name={sync === "saving" ? "refresh" : "save"} className={sync === "saving" ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
+            {sync === "saving" ? "Guardando..." : sync === "saved" ? "Guardado ✓" : "Guardar"}
+          </button>
+          <button onClick={exportarXLSX} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 flex items-center gap-2">
+            <Icon name="spreadsheet" /> Excel
+          </button>
+          <button onClick={exportarPDF} className="px-4 py-2 text-xs uppercase tracking-wider font-semibold bg-[#CC1414] text-white rounded hover:bg-rose-700 flex items-center gap-2">
+            <Icon name="filePdf" /> PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Editor */}
+        <div className="xl:col-span-2 space-y-4">
+          <Seccion icon="fileText" title="Datos del Estado de Pago" defaultOpen={true}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <F label="N° Estado de Pago">
+                <input type="number" min="1" value={ep.numero_ep} onChange={e => setEp(x => ({ ...x, numero_ep: parseInt(e.target.value) || 1 }))} className={inp + " font-mono text-right"} />
+              </F>
+              <F label="Revisión">
+                <input value={ep.revision} onChange={e => setEp(x => ({ ...x, revision: e.target.value }))} className={inp} />
+              </F>
+              <F label="Fecha de emisión">
+                <input type="date" value={ep.fecha} onChange={e => setEp(x => ({ ...x, fecha: e.target.value }))} className={inp} />
+              </F>
+              <F label="Estado">
+                <select value={ep.estado} onChange={e => setEp(x => ({ ...x, estado: e.target.value }))} className={inp}>
+                  {EP_ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </F>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <ClienteSelect label="Mandante / Cliente" compact directorio={directorioClientes}
+                value={ep.cliente}
+                onChange={(nombre) => setEp(x => ({ ...x, cliente: nombre }))} />
+              <F label="RUT del mandante">
+                <input value={ep.cliente_rut} onChange={e => setEp(x => ({ ...x, cliente_rut: e.target.value }))} placeholder="76.xxx.xxx-x" className={inp} />
+              </F>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <F label="Proyecto / Contrato">
+                <input value={ep.proyecto} onChange={e => setEp(x => ({ ...x, proyecto: e.target.value }))} className={inp} />
+              </F>
+              <F label="Referencia (OC / cotización)">
+                <input value={ep.referencia} onChange={e => setEp(x => ({ ...x, referencia: e.target.value }))} className={inp} />
+              </F>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <F label="Período">
+                <input value={ep.periodo} onChange={e => setEp(x => ({ ...x, periodo: e.target.value }))} placeholder="Agosto 2026" className={inp} />
+              </F>
+              <F label="Moneda">
+                <select value={ep.moneda} onChange={e => setEp(x => ({ ...x, moneda: e.target.value }))} className={inp}>
+                  <option value="UF">UF</option><option value="CLP">CLP</option>
+                </select>
+              </F>
+              <F label="Valor UF">
+                <input type="number" step="0.01" value={ep.uf_clp || ""} onChange={e => setEp(x => ({ ...x, uf_clp: parseFloat(e.target.value) || 0 }))} className={inp + " font-mono text-right"} />
+              </F>
+              <div className="flex items-end">
+                <button onClick={traerAvanceAnterior} title="Busca el último EP de este proyecto y trae su acumulado como avance anterior"
+                  className="w-full px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded flex items-center justify-center gap-1">
+                  <Icon name="refresh" className="w-3 h-3" /> Traer EP anterior
+                </button>
+              </div>
+            </div>
+          </Seccion>
+
+          <Seccion icon="layers" title={`Itemizado y avance (${ep.partidas.length})`} defaultOpen={true}>
+            <div className="flex justify-end mb-2">
+              <button onClick={addPartida} className="px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900 flex items-center gap-1">
+                <Icon name="plus" className="w-3 h-3" /> Agregar partida
+              </button>
+            </div>
+            {ep.partidas.length === 0 ? (
+              <div className="text-center py-8 text-sm text-slate-400 border border-dashed border-slate-300 rounded">
+                Sin partidas. Cárgalas desde una cotización o agrégalas manualmente.
+              </div>
+            ) : (
+              <div className="overflow-x-auto scrollbar-thin">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-1 py-2 w-10 text-left font-semibold">Ítem</th>
+                      <th className="px-1 py-2 text-left font-semibold min-w-[190px]">Descripción</th>
+                      <th className="px-1 py-2 w-14 font-semibold">Un</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold">Cant.</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold">P.Unit</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold">Total</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold bg-slate-100">Cant. ant.</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold bg-rose-50">Cant. mes</th>
+                      <th className="px-1 py-2 w-16 text-right font-semibold">% acum</th>
+                      <th className="px-1 py-2 w-20 text-right font-semibold">A pago</th>
+                      <th className="px-1 py-2 w-14"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {calc.partidas.map((p) => {
+                      const exceso = p.cantAcum > p.cantidad + 0.0001;
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-50">
+                          <td className="px-1 py-1">
+                            <input value={p.item} onChange={e => updPartida(p.id, { item: e.target.value })} className="w-10 text-xs border border-slate-200 rounded px-1 py-0.5" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <input value={p.descripcion} onChange={e => updPartida(p.id, { descripcion: e.target.value })} className="w-full text-xs border border-slate-200 rounded px-1 py-0.5" />
+                            {p.capitulo && <div className="text-[9px] text-slate-400 truncate">{p.capitulo}</div>}
+                          </td>
+                          <td className="px-1 py-1">
+                            <input value={p.unidad} onChange={e => updPartida(p.id, { unidad: e.target.value })} className="w-12 text-xs border border-slate-200 rounded px-1 py-0.5 text-center" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <input type="number" step="0.01" value={p.cantidad} onChange={e => updPartida(p.id, { cantidad: parseFloat(e.target.value) || 0 })} className="w-20 text-xs border border-slate-200 rounded px-1 py-0.5 text-right font-mono" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <input type="number" step="0.01" value={p.precio} onChange={e => updPartida(p.id, { precio: parseFloat(e.target.value) || 0 })} className="w-20 text-xs border border-slate-200 rounded px-1 py-0.5 text-right font-mono" />
+                          </td>
+                          <td className="px-1 py-1 text-right font-mono text-slate-700">{nm(p.total)}</td>
+                          <td className="px-1 py-1 bg-slate-50">
+                            <input type="number" step="0.01" value={p.cant_ant} onChange={e => updPartida(p.id, { cant_ant: parseFloat(e.target.value) || 0 })} className="w-20 text-xs border border-slate-200 rounded px-1 py-0.5 text-right font-mono" />
+                          </td>
+                          <td className="px-1 py-1 bg-rose-50">
+                            <input type="number" step="0.01" value={p.cant_per} onChange={e => updPartida(p.id, { cant_per: parseFloat(e.target.value) || 0 })} className={`w-20 text-xs border rounded px-1 py-0.5 text-right font-mono ${exceso ? "border-rose-500 bg-rose-100" : "border-slate-200"}`} />
+                          </td>
+                          <td className={`px-1 py-1 text-right font-mono ${exceso ? "text-rose-600 font-bold" : "text-slate-600"}`} title={exceso ? "El acumulado supera la cantidad contractual" : ""}>
+                            {fmtNum(p.pctAcum * 100, 1)}%
+                          </td>
+                          <td className="px-1 py-1 text-right font-mono font-semibold text-[#0D2B5E]">{nm(p.montoPer)}</td>
+                          <td className="px-1 py-1">
+                            <div className="flex gap-0.5 justify-end">
+                              <button onClick={() => moverPartida(p.id, -1)} className="text-slate-300 hover:text-slate-600 text-[10px]" title="Subir">▲</button>
+                              <button onClick={() => moverPartida(p.id, 1)} className="text-slate-300 hover:text-slate-600 text-[10px]" title="Bajar">▼</button>
+                              <button onClick={() => delPartida(p.id)} className="text-slate-300 hover:text-rose-600" title="Eliminar"><Icon name="trash" className="w-3 h-3" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Seccion>
+
+          <Seccion icon="dollar" title="Descuentos y firmas">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <F label="Retención %">
+                <input type="number" step="0.01" value={(ep.retencion_pct * 100).toFixed(2)} onChange={e => setEp(x => ({ ...x, retencion_pct: (parseFloat(e.target.value) || 0) / 100 }))} className={inp + " font-mono text-right"} />
+              </F>
+              <F label="Devolución anticipo %">
+                <input type="number" step="0.01" value={(ep.anticipo_dev_pct * 100).toFixed(2)} onChange={e => setEp(x => ({ ...x, anticipo_dev_pct: (parseFloat(e.target.value) || 0) / 100 }))} className={inp + " font-mono text-right"} />
+              </F>
+              <F label="IVA %">
+                <input type="number" step="0.01" value={(ep.iva_pct * 100).toFixed(2)} onChange={e => setEp(x => ({ ...x, iva_pct: (parseFloat(e.target.value) || 0) / 100 }))} className={inp + " font-mono text-right"} />
+              </F>
+              <F label={`Otros descuentos (${sim})`}>
+                <input type="number" step="0.01" value={ep.otros_descuentos || ""} onChange={e => setEp(x => ({ ...x, otros_descuentos: parseFloat(e.target.value) || 0 }))} className={inp + " font-mono text-right"} />
+              </F>
+            </div>
+            <F label="Glosa de otros descuentos" className="mb-3">
+              <input value={ep.otros_glosa} onChange={e => setEp(x => ({ ...x, otros_glosa: e.target.value }))} className={inp} />
+            </F>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <F label="Firma Soil"><input value={ep.firma_soil} onChange={e => setEp(x => ({ ...x, firma_soil: e.target.value }))} className={inp} /></F>
+              <F label="Cargo"><input value={ep.cargo_soil} onChange={e => setEp(x => ({ ...x, cargo_soil: e.target.value }))} className={inp} /></F>
+              <F label="Firma mandante"><input value={ep.firma_cliente} onChange={e => setEp(x => ({ ...x, firma_cliente: e.target.value }))} className={inp} /></F>
+              <F label="Cargo"><input value={ep.cargo_cliente} onChange={e => setEp(x => ({ ...x, cargo_cliente: e.target.value }))} className={inp} /></F>
+            </div>
+            <F label="Observaciones">
+              <textarea rows={2} value={ep.notas} onChange={e => setEp(x => ({ ...x, notas: e.target.value }))} className={inp} />
+            </F>
+          </Seccion>
+        </div>
+
+        {/* Panel derecho */}
+        <div className="space-y-4">
+          <div className="bg-gradient-to-br from-[#0D2B5E] to-[#1e3a8a] text-white rounded shadow-lg">
+            <div className="px-4 py-3 border-b border-blue-800">
+              <div className="text-xs uppercase tracking-wider font-bold">Liquidación · EP N°{ep.numero_ep}</div>
+              {ep.proyecto && <div className="text-sm font-bold text-white mt-1 leading-snug break-words">{ep.proyecto}</div>}
+            </div>
+            <div className="p-5 space-y-2.5 text-sm">
+              {[
+                ["Total contrato", calc.totalContrato, "text-blue-200"],
+                ["Acumulado anterior", calc.anterior, "text-blue-200"],
+                ["Avance del período", calc.periodo, "text-white font-semibold"]
+              ].map(([l, v, cls]) => (
+                <div key={l} className="flex justify-between items-baseline">
+                  <span className={`text-xs uppercase tracking-wider ${cls}`}>{l}</span>
+                  <div className="text-right">
+                    <div className="font-mono">{sim} {nm(v)}</div>
+                    {enClp(v) && <div className="text-[10px] text-blue-300">{enClp(v)}</div>}
+                  </div>
+                </div>
+              ))}
+              <div className="border-t border-blue-700 pt-2.5 space-y-2">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-blue-200">Retención {fmtNum(ep.retencion_pct * 100, 1)}%</span>
+                  <span className="font-mono text-rose-300">− {nm(calc.retencion)}</span>
+                </div>
+                {ep.anticipo_dev_pct > 0 && (
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs uppercase tracking-wider text-blue-200">Dev. anticipo</span>
+                    <span className="font-mono text-rose-300">− {nm(calc.devAnticipo)}</span>
+                  </div>
+                )}
+                {calc.otros > 0 && (
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs uppercase tracking-wider text-blue-200 truncate">{ep.otros_glosa}</span>
+                    <span className="font-mono text-rose-300">− {nm(calc.otros)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-blue-200">Total neto</span>
+                  <span className="font-mono font-semibold">{nm(calc.neto)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-blue-200">IVA {fmtNum(ep.iva_pct * 100, 0)}%</span>
+                  <span className="font-mono">{nm(calc.iva)}</span>
+                </div>
+              </div>
+              <div className="border-t border-blue-700 pt-3 flex justify-between items-baseline">
+                <span className="text-xs uppercase tracking-wider font-bold">Total a pagar</span>
+                <div className="text-right">
+                  <div className="font-black text-2xl display-font">{nm(calc.totalPagar)} <span className="text-sm">{sim}</span></div>
+                  {enClp(calc.totalPagar) && <div className="text-[10px] text-blue-300">{enClp(calc.totalPagar)} CLP</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Avance */}
+          <div className="bg-white border border-slate-200 rounded shadow-sm p-4">
+            <div className="flex justify-between items-baseline mb-2">
+              <span className="text-xs uppercase tracking-wider font-bold text-slate-700">Avance acumulado</span>
+              <span className="display-font font-black text-2xl text-[#CC1414]">{fmtNum(calc.pctAvance * 100, 1)}%</span>
+            </div>
+            <div className="h-3 bg-slate-100 rounded overflow-hidden flex">
+              <div className="h-full bg-[#0D2B5E]" style={{ width: Math.min(100, (calc.totalContrato > 0 ? calc.anterior / calc.totalContrato : 0) * 100) + "%" }} title="Anterior" />
+              <div className="h-full bg-[#CC1414]" style={{ width: Math.min(100, calc.pctPeriodo * 100) + "%" }} title="Período" />
+            </div>
+            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>■ Anterior {fmtNum((calc.totalContrato > 0 ? calc.anterior / calc.totalContrato : 0) * 100, 1)}%</span>
+              <span className="text-[#CC1414]">■ Período {fmtNum(calc.pctPeriodo * 100, 1)}%</span>
+            </div>
+            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-xs">
+              <span className="text-slate-500 uppercase tracking-wider text-[10px]">Saldo por ejecutar</span>
+              <span className="font-mono font-semibold text-slate-700">{sim} {nm(calc.saldo)}</span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded shadow-sm">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider font-bold text-slate-700">Vista previa</span>
+              <span className="text-[10px] text-slate-400">Se exporta a PDF</span>
+            </div>
+            <div className="p-3 max-h-96 overflow-auto bg-slate-50">
+              <div className="origin-top-left bg-white shadow" style={{ transform: "scale(0.28)", width: "357%" }}>
+                <EPPreview ep={ep} calc={calc} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Vista imprimible oculta */}
+      <div style={{ position: "absolute", left: "-99999px", top: 0 }}>
+        <div ref={printRef}><EPPreview ep={ep} calc={calc} /></div>
+      </div>
+
+      {/* Modal: cargar desde cotización */}
+      {showCargar && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white">
+              <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Cargar desde cotización</h3>
+              <button onClick={() => setShowCargar(false)} className="p-2 hover:bg-slate-100 rounded"><Icon name="x" className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4">
+              {cotizaciones.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400">No hay cotizaciones guardadas</div>
+              ) : (
+                <div className="border border-slate-200 rounded divide-y divide-slate-100">
+                  {cotizaciones.map(c => {
+                    const n = ((c.data?.item1_partidas || []).length + (c.data?.item2_partidas || []).length);
+                    return (
+                      <button key={c.id} onClick={() => cargarDesdeCotizacion(c)} disabled={n === 0}
+                        className={`w-full text-left px-4 py-3 flex items-center justify-between gap-3 ${n ? "hover:bg-slate-50" : "opacity-50 cursor-not-allowed"}`}>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-800 truncate">{c.proyecto_nombre || "Sin proyecto"}</div>
+                          <div className="text-[11px] text-slate-500 truncate">{c.numero} · {c.cliente_razon_social} · {fmtNum(Number(c.total_uf) || 0, 2)} UF</div>
+                        </div>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded whitespace-nowrap">{n} partidas</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: historial */}
+      {showHist && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded max-w-4xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white">
+              <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Historial de estados de pago</h3>
+              <button onClick={() => setShowHist(false)} className="p-2 hover:bg-slate-100 rounded"><Icon name="x" className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4">
+              {historial.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400">Aún no has guardado estados de pago</div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-2 py-2 text-left font-semibold">N°</th>
+                      <th className="px-2 py-2 text-left font-semibold">Proyecto</th>
+                      <th className="px-2 py-2 text-left font-semibold">Cliente</th>
+                      <th className="px-2 py-2 text-left font-semibold">Período</th>
+                      <th className="px-2 py-2 text-left font-semibold">Estado</th>
+                      <th className="px-2 py-2 text-right font-semibold">A pagar</th>
+                      <th className="px-2 py-2 w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historial.map(h => (
+                      <tr key={h.id} className="hover:bg-slate-50">
+                        <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414]">{h.numero_ep}{h.revision && h.revision !== "0" ? " R" + h.revision : ""}</td>
+                        <td className="px-2 py-1.5 text-slate-800">{h.proyecto}</td>
+                        <td className="px-2 py-1.5 text-slate-600">{h.cliente || "—"}</td>
+                        <td className="px-2 py-1.5 text-slate-600">{h.periodo || "—"}</td>
+                        <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-[10px] uppercase bg-slate-100 text-slate-700">{h.estado}</span></td>
+                        <td className="px-2 py-1.5 text-right font-mono">{h.moneda === "UF" ? "UF " : "$"}{fmtNum(Number(h.total_pagar) || 0, h.moneda === "UF" ? 2 : 0)}</td>
+                        <td className="px-2 py-1.5">
+                          <div className="flex gap-1 justify-end">
+                            <button onClick={() => abrirDelHistorial(h)} className="text-[#0D2B5E] hover:underline text-[11px]">Abrir</button>
+                            <button onClick={() => eliminarDelHistorial(h)} className="text-slate-300 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

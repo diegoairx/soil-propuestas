@@ -31,6 +31,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <!-- SheetJS: exportación de estados de pago a .xlsx editable -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- jsPDF AutoTable: tablas vectoriales para el PDF nativo de estados de pago -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
 <style>
   body { margin:0; background:#ffffff; font-family:'Inter',system-ui,sans-serif; }
@@ -61,7 +63,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.0 · BUILD 2026-08-21</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.1 · BUILD 2026-08-21</div>
   </div>
 </div>
 
@@ -77,7 +79,7 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.3.0";
+const APP_VERSION = "v6.3.1";
 const APP_BUILD   = "2026-08-21";
 
 // ============================================================================
@@ -643,10 +645,15 @@ function App() {
   }, []);
 
   // -------- Cargar datos cuando hay sesión (modo Supabase) --------
+  // OJO: depende del ID del usuario, NO del objeto session. Supabase entrega un
+  // objeto nuevo en cada refresco de token (~cada hora y al reenfocar la pestaña);
+  // usar [session] volvía a mostrar la pantalla de carga y desmontaba toda la app,
+  // borrando lo que se estuviera escribiendo en Estados de Pago o Cotizaciones.
+  const yaCargo = useRef(false);
   useEffect(() => {
     if (isOffline || !session) return;
     let cancelled = false;
-    setDataLoading(true);
+    if (!yaCargo.current) setDataLoading(true);   // el loader solo en la primera carga
     (async () => {
       const { data: rows, error } = await db
         .from("propuestas").select("*").order("updated_at", { ascending: false });
@@ -670,10 +677,10 @@ function App() {
       }
       const { data: cfg } = await db.from("config").select("*").eq("clave", "uf_clp").maybeSingle();
       if (cfg && !cancelled) setUfClp(parseInt(cfg.valor) || DEFAULT_UF_CLP);
-      setDataLoading(false);
+      if (!cancelled) { yaCargo.current = true; setDataLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session?.user?.id]);
 
   // -------- Realtime: cuando otro usuario edita, actualizamos en vivo --------
   useEffect(() => {
@@ -1071,7 +1078,8 @@ function App() {
   if (authLoading) return <LoadingScreen mensaje="Verificando sesión..." />;
   // Si no hay sesión y no estamos en modo offline, mostrar login
   if (!session && !isOffline) return <LoginScreen />;
-  if (dataLoading && session) return <LoadingScreen mensaje="Cargando propuestas..." />;
+  // Solo en la carga inicial: después se recarga en segundo plano sin desmontar la app
+  if (dataLoading && session && !yaCargo.current) return <LoadingScreen mensaje="Cargando propuestas..." />;
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -4994,12 +5002,36 @@ function EPPreview({ ep, calc }) {
   );
 }
 
+// Campo etiquetado. DEBE vivir a nivel de módulo: si se define dentro del render
+// React lo considera un componente distinto en cada pasada y desmonta/remonta el
+// input en cada tecla, lo que producía el lag al escribir.
+function EPCampo({ label, children, className = "" }) {
+  return (
+    <div className={className}>
+      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+const EP_INP = "w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]";
+
 // ---------------------------------------------------------------------------
 // Generador de Estados de Pago
 // ---------------------------------------------------------------------------
 function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
-  const [ep, setEp]                 = useState(EP_VACIO);
-  const [epId, setEpId]             = useState(null);
+  // Borrador persistente: si la app se recarga o se remonta, no se pierde nada
+  const EP_STORAGE = "soil_estado_pago_borrador_v1";
+  const [ep, setEp] = useState(() => {
+    try {
+      const guardado = localStorage.getItem(EP_STORAGE);
+      if (guardado) {
+        const p = JSON.parse(guardado);
+        if (p && Array.isArray(p.partidas)) return { ...EP_VACIO(), ...p };
+      }
+    } catch (e) {}
+    return EP_VACIO();
+  });
+  const [epId, setEpId] = useState(() => { try { return localStorage.getItem(EP_STORAGE + "_id") || null; } catch (e) { return null; } });
   const [historial, setHistorial]   = useState([]);
   const [cotizaciones, setCotiz]    = useState([]);
   const [showHist, setShowHist]     = useState(false);
@@ -5011,6 +5043,19 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
   const supaOn = !!db;
   const flash = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
   const calc  = useMemo(() => epCalcular(ep), [ep]);
+
+  // Autoguardado del borrador en el navegador
+  useEffect(() => { try { localStorage.setItem(EP_STORAGE, JSON.stringify(ep)); } catch (e) {} }, [ep]);
+  useEffect(() => {
+    try { epId ? localStorage.setItem(EP_STORAGE + "_id", epId) : localStorage.removeItem(EP_STORAGE + "_id"); } catch (e) {}
+  }, [epId]);
+
+  // La vista previa se recalcula con retardo para no re-renderizar la tabla
+  // completa en cada tecla (era la otra causa del lag al escribir).
+  const [epVista, setEpVista] = useState(ep);
+  useEffect(() => { const t = setTimeout(() => setEpVista(ep), 400); return () => clearTimeout(t); }, [ep]);
+  const calcVista = useMemo(() => epCalcular(epVista), [epVista]);
+
   const esUF  = ep.moneda === "UF";
   const uf    = Number(ep.uf_clp) || 0;
   const sim   = esUF ? "UF" : "$";
@@ -5170,23 +5215,252 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
     cargarHistorial();
   };
 
-  // ===== Exportar PDF =====
-  const exportarPDF = async () => {
-    if (!printRef.current) return;
-    if (!window.html2pdf) { flash("Librería PDF no cargó. Refresca la página.", "err"); return; }
+  // ===== Exportar PDF nativo (vectorial) =====
+  // No rasteriza: dibuja texto y tablas reales, así el documento queda en calidad
+  // de impresión, con texto seleccionable, buscable, resaltable y comentable, y
+  // con campos rellenables para que el mandante escriba y firme digitalmente.
+  const exportarPDF = () => {
+    const JS = window.jspdf && window.jspdf.jsPDF;
+    if (!JS) { flash("Librería PDF no cargó. Refresca la página.", "err"); return; }
     flash("Generando PDF...");
-    const nombre = `EP_N${ep.numero_ep}_${(ep.proyecto || "Proyecto").replace(/[^\w]+/g, "_")}.pdf`;
     try {
-      await window.html2pdf().set({
-        margin: [8, 8, 10, 8],
-        filename: nombre,
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-        pagebreak: { mode: ["avoid-all", "css", "legacy"] }
-      }).from(printRef.current).save();
-      flash("PDF descargado");
-    } catch (e) { flash("Error generando PDF: " + e.message, "err"); }
+      const doc = new JS({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+      if (typeof doc.autoTable !== "function") { flash("Falta el plugin de tablas. Refresca la página.", "err"); return; }
+
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const M = 8;
+      const ANCHO = W - 2 * M;
+      const AZUL = [13, 43, 94], ROJO = [204, 20, 20], GRIS = [100, 116, 139], LINEA = [203, 213, 225];
+      const pctT = (v) => fmtNum((v || 0) * 100, 1) + "%";
+      const clp  = (v) => (esUF && uf > 0 ? "$" + fmtNum(v * uf, 0) : "");
+
+      // ---------- Encabezado con logotipo ----------
+      doc.setFillColor(ROJO[0], ROJO[1], ROJO[2]);
+      doc.roundedRect(M, M, 13, 13, 1, 1, "F");
+      doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(17);
+      doc.text("S", M + 6.5, M + 9.8, { align: "center" });
+
+      doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]); doc.setFontSize(15);
+      doc.text("SOIL LIMITADA", M + 16, M + 6);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+      doc.text("SOCIEDAD CONSTRUCTORA E INVERSIONES · OBRAS PREVIAS", M + 16, M + 10);
+      doc.text("RUT 76.495.833-0 · www.soilconstructora.cl", M + 16, M + 13.4);
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
+      doc.text("ESTADO DE PAGO N°" + ep.numero_ep, W - M, M + 6, { align: "right" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+      doc.text("Revisión " + (ep.revision || "0") + "  ·  " + ep.estado, W - M, M + 10.8, { align: "right" });
+
+      doc.setDrawColor(ROJO[0], ROJO[1], ROJO[2]); doc.setLineWidth(0.7);
+      doc.line(M, M + 16.5, W - M, M + 16.5);
+
+      // ---------- Datos del contrato ----------
+      const colX = [M, M + ANCHO / 3, M + 2 * ANCHO / 3];
+      const colW = ANCHO / 3 - 5;
+      const dato = (i, yy, lbl, val, bold) => {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6.4); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+        doc.text(String(lbl).toUpperCase(), colX[i], yy);
+        doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+        doc.text(doc.splitTextToSize(String(val || "—"), colW), colX[i], yy + 4.2);
+      };
+      let y = M + 22;
+      dato(0, y, "Mandante / Cliente", ep.cliente, true);
+      dato(1, y, "Proyecto / Contrato", ep.proyecto, true);
+      dato(2, y, "Fecha de emisión", ep.fecha, true);
+      y += 11;
+      dato(0, y, "RUT", ep.cliente_rut);
+      dato(1, y, "Referencia", ep.referencia);
+      dato(2, y, "Período · Moneda", (ep.periodo || "—") + " · " + ep.moneda + (esUF && uf > 0 ? "  (UF $" + fmtNum(uf, 2) + ")" : ""));
+      y += 11;
+
+      // ---------- Itemizado ----------
+      const cuerpo = [];
+      let capAct = null;
+      calc.partidas.forEach(p => {
+        if (p.capitulo && p.capitulo !== capAct) {
+          capAct = p.capitulo;
+          cuerpo.push([{ content: capAct, colSpan: 14,
+            styles: { fillColor: [254, 242, 242], textColor: AZUL, fontStyle: "bold" } }]);
+        }
+        cuerpo.push([p._n, p.descripcion, p.unidad,
+          fmtNum(p.cantidad, 2), nm(p.precio), nm(p.total),
+          fmtNum(p.cant_ant, 2), pctT(p.pctAnt),
+          fmtNum(p.cant_per, 2), pctT(p.pctPer),
+          fmtNum(p.cantAcum, 2), pctT(p.pctAcum),
+          nm(p.montoPer), nm(p.saldo)]);
+      });
+      const cB = { fillColor: AZUL, textColor: [255, 255, 255] };
+      cuerpo.push([
+        { content: "TOTAL CONTRATO", colSpan: 5, styles: { ...cB, fontStyle: "bold" } },
+        { content: nm(calc.totalContrato), styles: { ...cB, fontStyle: "bold", halign: "right" } },
+        { content: "", styles: cB },
+        { content: pctT(calc.totalContrato > 0 ? calc.anterior / calc.totalContrato : 0), styles: { ...cB, halign: "right" } },
+        { content: "", styles: cB },
+        { content: pctT(calc.pctPeriodo), styles: { ...cB, halign: "right" } },
+        { content: "", styles: cB },
+        { content: pctT(calc.pctAvance), styles: { ...cB, halign: "right" } },
+        { content: nm(calc.periodo), styles: { ...cB, fontStyle: "bold", halign: "right" } },
+        { content: nm(calc.saldo), styles: { ...cB, halign: "right" } }
+      ]);
+
+      doc.autoTable({
+        startY: y,
+        margin: { left: M, right: M, top: M },
+        tableWidth: ANCHO,
+        head: [[
+          { content: "ÍTEM", rowSpan: 2 }, { content: "DESCRIPCIÓN DE LA PARTIDA", rowSpan: 2 }, { content: "UN", rowSpan: 2 },
+          { content: "CONTRACTUAL", colSpan: 3 }, { content: "AVANCE ANTERIOR", colSpan: 2 },
+          { content: "AVANCE DEL PERÍODO", colSpan: 2 }, { content: "AVANCE ACUMULADO", colSpan: 2 },
+          { content: "A PAGO " + sim, rowSpan: 2 }, { content: "SALDO " + sim, rowSpan: 2 }
+        ], ["CANT.", "P. UNIT.", "TOTAL", "CANT.", "%", "CANT.", "%", "CANT.", "%"]],
+        body: cuerpo,
+        theme: "grid",
+        styles: { fontSize: 6.6, cellPadding: 1.2, lineColor: LINEA, lineWidth: 0.1, overflow: "linebreak", textColor: [30, 41, 59] },
+        headStyles: { fillColor: AZUL, textColor: [255, 255, 255], fontSize: 6.2, fontStyle: "bold", halign: "center", valign: "middle" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" }, 1: { cellWidth: 82 }, 2: { cellWidth: 11, halign: "center" },
+          3: { cellWidth: 17, halign: "right" }, 4: { cellWidth: 17, halign: "right" }, 5: { cellWidth: 19, halign: "right" },
+          6: { cellWidth: 16, halign: "right" }, 7: { cellWidth: 13, halign: "right" },
+          8: { cellWidth: 16, halign: "right" }, 9: { cellWidth: 13, halign: "right" },
+          10: { cellWidth: 16, halign: "right" }, 11: { cellWidth: 13, halign: "right" },
+          12: { cellWidth: 19, halign: "right", fontStyle: "bold" }, 13: { cellWidth: 19, halign: "right" }
+        }
+      });
+      y = doc.lastAutoTable.finalY + 6;
+
+      // ---------- Resumen económico y liquidación ----------
+      const ALTO_BLOQUE = 46;
+      if (y + ALTO_BLOQUE > H - M) { doc.addPage(); y = M + 4; }
+      const bw = (ANCHO - 6) / 2;
+
+      const bloque = (x, titulo, filas) => {
+        doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.25);
+        doc.roundedRect(x, y, bw, ALTO_BLOQUE, 1.2, 1.2, "S");
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, y, bw, 7, 1.2, 1.2, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
+        doc.text(String(titulo).toUpperCase(), x + 3, y + 4.8);
+        let yy = y + 12;
+        filas.forEach(f => {
+          if (!f) return;
+          const [lbl, val, op] = f;
+          const o = op || {};
+          if (o.top) { doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(x + 3, yy - 3.1, x + bw - 3, yy - 3.1); }
+          doc.setFont("helvetica", o.strong ? "bold" : "normal");
+          doc.setFontSize(o.big ? 8.5 : 7.6);
+          doc.setTextColor(o.strong ? AZUL[0] : 71, o.strong ? AZUL[1] : 85, o.strong ? AZUL[2] : 105);
+          doc.text(String(lbl), x + 3, yy);
+          doc.setFont("helvetica", o.strong ? "bold" : "normal");
+          doc.setFontSize(o.big ? 11 : 8);
+          if (o.strong) doc.setTextColor(ROJO[0], ROJO[1], ROJO[2]); else doc.setTextColor(15, 23, 42);
+          const eq = clp(val);
+          doc.text(sim + " " + nm(val), x + bw - 3 - (eq ? 26 : 0), yy, { align: "right" });
+          if (eq) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(6.6); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+            doc.text(eq, x + bw - 3, yy, { align: "right" });
+          }
+          yy += o.big ? 7.5 : 5.6;
+        });
+      };
+
+      bloque(M, "Avance económico", [
+        ["Total contrato", calc.totalContrato],
+        ["Acumulado anterior", calc.anterior],
+        ["Avance del período", calc.periodo, { strong: true }],
+        ["Acumulado a la fecha", calc.acumulado, { top: true }],
+        ["Saldo por ejecutar", calc.saldo]
+      ]);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+      doc.text("Avance acumulado", M + 3, y + ALTO_BLOQUE - 4);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
+      doc.text(pctT(calc.pctAvance), M + bw - 3, y + ALTO_BLOQUE - 4, { align: "right" });
+
+      bloque(M + bw + 6, "Liquidación del presente estado de pago", [
+        ["(=) Avance del período", calc.periodo],
+        ["(−) Retención " + pctT(ep.retencion_pct), calc.retencion],
+        ep.anticipo_dev_pct > 0 ? ["(−) Devolución anticipo " + pctT(ep.anticipo_dev_pct), calc.devAnticipo] : null,
+        calc.otros > 0 ? ["(−) " + (ep.otros_glosa || "Otros descuentos"), calc.otros] : null,
+        ["Total neto", calc.neto, { top: true, strong: true }],
+        ["(+) IVA " + pctT(ep.iva_pct), calc.iva],
+        ["TOTAL A PAGAR", calc.totalPagar, { top: true, strong: true, big: true }]
+      ]);
+      y += ALTO_BLOQUE + 6;
+
+      // ---------- Observaciones del mandante (campo rellenable) ----------
+      const ALTO_OBS = 26;
+      if (y + ALTO_OBS + 34 > H - M) { doc.addPage(); y = M + 4; }
+      doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.25);
+      doc.roundedRect(M, y, ANCHO, ALTO_OBS, 1.2, 1.2, "S");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
+      doc.text("OBSERVACIONES Y COMENTARIOS DEL MANDANTE", M + 3, y + 5);
+      if (ep.notas) {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.6); doc.setTextColor(71, 85, 105);
+        doc.text(doc.splitTextToSize(ep.notas, ANCHO - 8), M + 3, y + 10);
+      }
+      // Campo de formulario para escribir directamente en el PDF
+      try {
+        const AF = window.jspdf.AcroFormTextField;
+        if (AF) {
+          const campo = new AF();
+          campo.fieldName = "observaciones_mandante";
+          campo.multiline = true;
+          campo.fontSize = 9;
+          campo.Rect = [M + 2, y + 7, ANCHO - 4, ALTO_OBS - 9];
+          doc.addField(campo);
+        }
+      } catch (e) { /* si el visor no soporta formularios, queda el recuadro para escribir a mano */ }
+      y += ALTO_OBS + 8;
+
+      // ---------- Firmas ----------
+      const fw = (ANCHO - 20) / 2;
+      const firma = (x, nombre, cargo, empresa, campoId) => {
+        doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.25);
+        doc.roundedRect(x, y, fw, 22, 1.2, 1.2, "S");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6);
+        doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+        doc.text("FIRMA / TIMBRE", x + 3, y + 4);
+        doc.setDrawColor(71, 85, 105); doc.setLineWidth(0.3);
+        doc.line(x + 8, y + 15, x + fw - 8, y + 15);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(30, 41, 59);
+        doc.text(String(nombre || ""), x + fw / 2, y + 18.5, { align: "center" });
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6.6); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+        doc.text(String(cargo || "") + (empresa ? "  ·  " + empresa : ""), x + fw / 2, y + 21.4, { align: "center" });
+        try {
+          const AF = window.jspdf.AcroFormTextField;
+          if (AF) {
+            const c = new AF();
+            c.fieldName = campoId; c.fontSize = 9;
+            c.Rect = [x + 8, y + 6, fw - 16, 8];
+            doc.addField(c);
+          }
+        } catch (e) {}
+      };
+      firma(M, ep.firma_soil, ep.cargo_soil, "Soil Limitada", "firma_soil");
+      firma(M + fw + 20, ep.firma_cliente, ep.cargo_cliente, ep.cliente, "firma_mandante");
+
+      // ---------- Pie de página ----------
+      const total = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= total; i++) {
+        doc.setPage(i);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6.4);
+        doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
+        doc.text("Soil Limitada · Estado de Pago N°" + ep.numero_ep + " · " + (ep.proyecto || ""), M, H - 4);
+        doc.text("Página " + i + " de " + total, W - M, H - 4, { align: "right" });
+      }
+
+      doc.setProperties({
+        title: "Estado de Pago N°" + ep.numero_ep + " · " + (ep.proyecto || ""),
+        subject: "Estado de pago para cobro de servicios",
+        author: "Soil Limitada",
+        creator: "Soil Propuestas " + APP_VERSION
+      });
+      doc.save("EP_N" + ep.numero_ep + "_" + (ep.proyecto || "Proyecto").replace(/[^\w]+/g, "_") + ".pdf");
+      flash("PDF vectorial descargado (texto seleccionable y anotable)");
+    } catch (e) {
+      flash("Error generando PDF: " + e.message, "err");
+    }
   };
 
   // ===== Exportar XLSX editable (con fórmulas) =====
@@ -5259,13 +5533,8 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
     flash("Excel descargado (con fórmulas editables)");
   };
 
-  const F = ({ label, children, className = "" }) => (
-    <div className={className}>
-      <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">{label}</label>
-      {children}
-    </div>
-  );
-  const inp = "w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#0D2B5E]";
+  const F = EPCampo;
+  const inp = EP_INP;
 
   return (
     <div className="space-y-6">
@@ -5552,16 +5821,11 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
             </div>
             <div className="p-3 max-h-96 overflow-auto bg-slate-50">
               <div className="origin-top-left bg-white shadow" style={{ transform: "scale(0.28)", width: "357%" }}>
-                <EPPreview ep={ep} calc={calc} />
+                <EPPreview ep={epVista} calc={calcVista} />
               </div>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Vista imprimible oculta */}
-      <div style={{ position: "absolute", left: "-99999px", top: 0 }}>
-        <div ref={printRef}><EPPreview ep={ep} calc={calc} /></div>
       </div>
 
       {/* Modal: cargar desde cotización */}

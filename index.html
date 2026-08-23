@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.4 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.4.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -84,7 +84,7 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.3.4";
+const APP_VERSION = "v6.4.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -1144,7 +1144,6 @@ function App() {
             { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
             { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
             { id: "estadospago", label: "Estados de Pago", icon: "dollar" },
-            { id: "insights",    label: "Insights",    icon: "zap" },
             { id: "informe",     label: "Informe",     icon: "file" }
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -1157,7 +1156,7 @@ function App() {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-6 py-8">
-        {tab === "dashboard" && <Dashboard stats={stats} insights={insights} ufClp={ufClp} />}
+        {tab === "dashboard" && <Dashboard stats={stats} ufClp={ufClp} />}
         {tab === "propuestas" && <Propuestas
           ufClp={ufClp}
           data={filtered} totalData={data} clientesUnicos={clientesUnicos}
@@ -1175,7 +1174,6 @@ function App() {
         />}
         {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} directorioClientes={directorioClientes} propuestas={data} />}
         {tab === "estadospago" && <EstadosPago ufClp={ufClp} directorioClientes={directorioClientes} propuestas={data} />}
-        {tab === "insights" && <Insights insights={insights} stats={stats} ufClp={ufClp} />}
         {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
 
@@ -1191,7 +1189,7 @@ function App() {
 // ============================================================================
 // DASHBOARD
 // ============================================================================
-function Dashboard({ stats, insights, ufClp }) {
+function Dashboard({ stats, ufClp }) {
   const kpis = [
     { label: "Total propuestas",    value: stats.total,                          sub: "estudios registrados",      icon: "briefcase", color: "text-slate-900" },
     { label: "Tasa adjudicación",   value: `${stats.tasaAdj.toFixed(0)}%`,       sub: `${stats.adj.length}/${stats.decididas} decididas`, icon: "target", color: stats.tasaAdj >= 50 ? "text-emerald-600" : "text-amber-600" },
@@ -1215,15 +1213,6 @@ function Dashboard({ stats, insights, ufClp }) {
           </div>
         ))}
       </div>
-
-      <section>
-        <h2 className="display-font text-2xl font-black uppercase mb-4 flex items-center gap-3">
-          <span className="w-1 h-6 bg-[#CC1414]"></span> Hallazgos críticos
-        </h2>
-        <div className="grid md:grid-cols-2 gap-3">
-          {insights.slice(0,4).map((it,i) => <InsightCard key={i} item={it} compact />)}
-        </div>
-      </section>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <ChartCard title="Distribución por estado" iconName="pie">
@@ -1996,134 +1985,6 @@ function NuevaPropuestaModal({ onClose, onSave, directorio = [] }) {
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <EditForm draft={draft} setDraft={setDraft} onSave={() => onSave(draft)} onCancel={onClose} directorio={directorio} />
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// INSIGHT CARD
-// ============================================================================
-function InsightCard({ item, compact }) {
-  const config = {
-    ganador:     { color: "border-emerald-500/50 bg-emerald-50",     icon: "award",  iconC: "text-emerald-600", tag: "OPORTUNIDAD CONSOLIDADA" },
-    riesgo:      { color: "border-rose-500/50 bg-rose-50",           icon: "alert",  iconC: "text-rose-600",    tag: "RIESGO" },
-    oportunidad: { color: "border-amber-500/50 bg-amber-50",         icon: "trendup",iconC: "text-amber-600",   tag: "OPORTUNIDAD" },
-    alerta:      { color: "border-orange-500/50 bg-orange-50",       icon: "alert",  iconC: "text-orange-600",  tag: "ALERTA OPERATIVA" },
-    info:        { color: "border-sky-500/50 bg-sky-50",             icon: "eye",    iconC: "text-sky-600",     tag: "OBSERVACIÓN" }
-  }[item.tipo] || { color: "border-slate-300", icon: "eye", iconC: "text-slate-600", tag: "INFO" };
-
-  return (
-    <div className={`border ${config.color} rounded p-5 transition hover:scale-[1.01]`}>
-      <div className="flex items-start gap-3">
-        <span className={`mt-0.5 flex-shrink-0 ${config.iconC}`}><Icon name={config.icon} className="w-5 h-5" /></span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`text-[9px] font-bold uppercase tracking-[0.15em] ${config.iconC}`}>{config.tag}</span>
-          </div>
-          <h4 className="font-bold text-base text-slate-900 mb-1">{item.titulo}</h4>
-          <p className="text-sm text-slate-700 leading-relaxed">{item.detalle}</p>
-          {!compact && (
-            <div className="mt-3 pt-3 border-t border-slate-200">
-              <div className="text-[10px] uppercase tracking-wider text-slate-600 mb-1">Acción recomendada</div>
-              <p className="text-sm text-slate-800 leading-relaxed">{item.accion}</p>
-            </div>
-          )}
-          {compact && <p className="text-xs text-slate-600 mt-2 italic">→ {item.accion}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// INSIGHTS TAB
-// ============================================================================
-function Insights({ insights, stats, ufClp }) {
-  return (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-rose-50 to-transparent border-l-4 border-[#CC1414] p-5 rounded">
-        <h2 className="display-font text-3xl font-black uppercase mb-2 text-[#0D2B5E]">Análisis estratégico</h2>
-        <p className="text-slate-700 text-sm max-w-3xl">
-          Patrones detectados en tu cartera comercial que merecen atención. Cada hallazgo incluye una acción concreta.
-          Esto no reemplaza tu criterio — sirve para que ningún punto ciego te tome por sorpresa.
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        {insights.map((it,i) => <InsightCard key={i} item={it} />)}
-      </div>
-
-      <div className="bg-white border border-slate-200 shadow-sm rounded p-6">
-        <h3 className="display-font text-xl font-bold uppercase mb-4 text-[#0D2B5E]">Detalle clientes recurrentes (≥2 propuestas)</h3>
-        <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs uppercase tracking-wider text-slate-600 border-b border-slate-300 bg-slate-50">
-                <th className="text-left p-2">Cliente</th>
-                <th className="text-right p-2"># Prop.</th>
-                <th className="text-right p-2">Adj.</th>
-                <th className="text-right p-2">Rech.</th>
-                <th className="text-right p-2">Pipeline</th>
-                <th className="text-right p-2">Tasa</th>
-                <th className="text-right p-2">Monto adjudicado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.clientes.filter(c => c.n >= 2).map((c,i) => (
-                <tr key={i} className="border-b border-slate-200 hover:bg-slate-50">
-                  <td className="p-2 text-slate-800">{c.cliente}</td>
-                  <td className="p-2 text-right font-mono">{c.n}</td>
-                  <td className="p-2 text-right font-mono text-emerald-600">{c.adj}</td>
-                  <td className="p-2 text-right font-mono text-rose-600">{c.rech}</td>
-                  <td className="p-2 text-right font-mono text-amber-600">{c.pipe}</td>
-                  <td className="p-2 text-right font-mono">
-                    {c.tasa !== null ? (
-                      <span className={c.tasa >= 60 ? "text-emerald-600" : c.tasa >= 40 ? "text-amber-600" : "text-rose-600"}>
-                        {c.tasa.toFixed(0)}%
-                      </span>
-                    ) : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="p-2 text-right font-mono text-slate-700">{fmtUF(c.montoAdj)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="bg-white border border-slate-200 shadow-sm rounded p-6">
-        <h3 className="display-font text-xl font-bold uppercase mb-4 text-[#0D2B5E]">Tasa de conversión por servicio</h3>
-        <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs uppercase tracking-wider text-slate-600 border-b border-slate-300 bg-slate-50">
-                <th className="text-left p-2">Servicio</th>
-                <th className="text-right p-2">Cotizaciones</th>
-                <th className="text-right p-2">Adjudicadas</th>
-                <th className="text-right p-2">Rechazadas</th>
-                <th className="text-right p-2">Tasa éxito</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.servicios.map((s,i) => (
-                <tr key={i} className="border-b border-slate-200 hover:bg-slate-50">
-                  <td className="p-2 text-slate-800">{s.servicio}</td>
-                  <td className="p-2 text-right font-mono">{s.total}</td>
-                  <td className="p-2 text-right font-mono text-emerald-600">{s.adj}</td>
-                  <td className="p-2 text-right font-mono text-rose-600">{s.rech}</td>
-                  <td className="p-2 text-right font-mono">
-                    {s.tasa !== null ? (
-                      <span className={s.tasa >= 60 ? "text-emerald-600" : s.tasa >= 40 ? "text-amber-600" : "text-rose-600"}>
-                        {s.tasa.toFixed(0)}%
-                      </span>
-                    ) : <span className="text-slate-400">—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );

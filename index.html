@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.4.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -82,9 +82,159 @@ const {
 } = Recharts;
 
 // ============================================================================
+// CÁLCULOS DE CARTERA
+// Viven fuera de App para poder recalcularlos sobre un subconjunto de datos
+// (por ejemplo, el informe acotado a un período).
+// ============================================================================
+function calcularStats(data) {
+    const total      = data.length;
+    const adj        = data.filter(d => d.status === "Proyecto adjudicado");
+    const rech       = data.filter(d => d.status === "Proyecto rechazado");
+    const pipeline   = data.filter(d => d.status === "Cotización enviada" || d.status === "Negociación proyecto");
+    const standby    = data.filter(d => d.status === "Stand by");
+    const decididas  = adj.length + rech.length;
+    const tasaAdj    = decididas ? (adj.length / decididas * 100) : 0;
+    const montoAdj   = adj.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoPipe  = pipeline.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoStandby = standby.reduce((s,r) => s + (r.monto || 0), 0);
+    const montoRech  = rech.reduce((s,r) => s + (r.monto || 0), 0);
+    const adjConMonto = adj.filter(r => r.monto > 0);
+    const ticketAdj  = adjConMonto.length ? montoAdj / adjConMonto.length : 0;
+
+    const porStatus = STATUS_LIST.map(s => {
+      const arr = data.filter(d => d.status === s);
+      return { status: s, n: arr.length, monto: arr.reduce((a,r) => a + (r.monto||0), 0), color: STATUS_CONFIG[s].color };
+    }).filter(x => x.n > 0);
+
+    const clienteMap = {};
+    data.forEach(r => {
+      if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { cliente: r.cliente, n: 0, adj: 0, rech: 0, pipe: 0, monto: 0, montoAdj: 0 };
+      const c = clienteMap[r.cliente];
+      c.n++;
+      c.monto += r.monto || 0;
+      if (r.status === "Proyecto adjudicado") { c.adj++; c.montoAdj += r.monto || 0; }
+      if (r.status === "Proyecto rechazado")  c.rech++;
+      if (r.status === "Cotización enviada" || r.status === "Negociación proyecto") c.pipe++;
+    });
+    const clientes = Object.values(clienteMap).map(c => ({
+      ...c,
+      tasa: (c.adj + c.rech) ? (c.adj / (c.adj + c.rech) * 100) : null
+    })).sort((a,b) => b.n - a.n);
+
+    const servMap = {};
+    data.forEach(r => {
+      const lista = (r.servicios || "").split(",").map(s => s.trim()).filter(Boolean);
+      lista.forEach(s => {
+        if (!servMap[s]) servMap[s] = { servicio: s, total: 0, adj: 0, rech: 0, montoAdj: 0, proyectosAdj: 0 };
+        servMap[s].total++;
+        if (r.status === "Proyecto adjudicado") {
+          servMap[s].adj++;
+          // Valorización: como un proyecto puede tener N servicios, repartimos el monto en partes iguales
+          // (no es perfecto pero es la mejor estimación con la data que tenemos)
+          if ((r.monto || 0) > 0 && lista.length > 0) {
+            servMap[s].montoAdj += (r.monto / lista.length);
+            servMap[s].proyectosAdj++;
+          }
+        }
+        if (r.status === "Proyecto rechazado")  servMap[s].rech++;
+      });
+    });
+    const servicios = Object.values(servMap).map(s => ({
+      ...s,
+      tasa: (s.adj + s.rech) ? (s.adj / (s.adj + s.rech) * 100) : null
+    })).sort((a,b) => b.total - a.total);
+
+    // Ranking por valorización (para informe ejecutivo)
+    const serviciosValorizados = [...servicios].filter(s => s.adj > 0).sort((a,b) => b.montoAdj - a.montoAdj);
+
+    const tendMap = {};
+    data.forEach(r => {
+      const d = parseDate(r.ultimo_contacto);
+      if (!d) return;
+      const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if (!tendMap[k]) tendMap[k] = { mes: k, total: 0, adj: 0, monto: 0 };
+      tendMap[k].total++;
+      tendMap[k].monto += r.monto || 0;
+      if (r.status === "Proyecto adjudicado") tendMap[k].adj++;
+    });
+    const tendencia = Object.values(tendMap).sort((a,b) => a.mes.localeCompare(b.mes));
+
+    const top3n = clientes.slice(0,3).reduce((s,c) => s + c.n, 0);
+    const concentracion = total ? (top3n / total * 100) : 0;
+
+    return { total, adj, rech, pipeline, standby, decididas, tasaAdj, montoAdj, montoPipe, montoStandby, montoRech, ticketAdj, porStatus, clientes, servicios, serviciosValorizados, tendencia, concentracion };
+}
+
+function calcularInsights(data, stats) {
+    const items = [];
+    const recurrentes = stats.clientes.filter(c => c.n >= 3);
+    const estrella = recurrentes.filter(c => c.tasa !== null && c.tasa >= 70).sort((a,b) => b.adj - a.adj)[0];
+    if (estrella) items.push({
+      tipo: "ganador", titulo: `${estrella.cliente} es tu cliente ancla`,
+      detalle: `${estrella.adj}/${estrella.adj+estrella.rech} adjudicados (${estrella.tasa.toFixed(0)}%) — ${fmtUF(estrella.montoAdj)} facturados.`,
+      accion: "Consolidar cuenta clave: agendar reunión trimestral, ofrecer paquete preferente, mantener contacto activo aunque no haya licitación abierta."
+    });
+    const riesgo = recurrentes.filter(c => c.tasa !== null && c.tasa <= 40 && (c.adj + c.rech) >= 2).sort((a,b) => a.tasa - b.tasa)[0];
+    if (riesgo) items.push({
+      tipo: "riesgo", titulo: `${riesgo.cliente}: tasa de éxito baja`,
+      detalle: `Solo ${riesgo.adj}/${riesgo.adj+riesgo.rech} adjudicados (${riesgo.tasa.toFixed(0)}%). Has invertido tiempo en ${riesgo.n} estudios.`,
+      accion: "Revisar postmortems: ¿precio, plazo o relación? Pedir feedback explícito al contacto. Antes de cotizar el próximo, calificar si vale la pena el esfuerzo."
+    });
+    const servGanador = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa >= 70).sort((a,b) => b.tasa - a.tasa)[0];
+    if (servGanador) items.push({
+      tipo: "ganador", titulo: `"${servGanador.servicio}" es tu servicio más competitivo`,
+      detalle: `${servGanador.adj}/${servGanador.adj+servGanador.rech} adjudicados (${servGanador.tasa.toFixed(0)}%). Tu propuesta de valor aquí es fuerte.`,
+      accion: "Apalancar: priorizar este servicio en marketing (LinkedIn, sitio web), buscar proyectos donde sea el componente principal, generar caso de éxito documentado."
+    });
+    const servProblema = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa <= 30).sort((a,b) => a.tasa - b.tasa)[0];
+    if (servProblema) items.push({
+      tipo: "riesgo", titulo: `"${servProblema.servicio}" tiene baja conversión`,
+      detalle: `Apenas ${servProblema.adj}/${servProblema.adj+servProblema.rech} adjudicados (${servProblema.tasa.toFixed(0)}%) sobre ${servProblema.total} cotizaciones.`,
+      accion: "Diagnosticar: ¿precio fuera de mercado, mucha competencia, o no es tu sweet spot? Considerar subcontratar, asociar o dejar de cotizarlo standalone."
+    });
+    if (stats.montoPipe > 0) items.push({
+      tipo: "oportunidad", titulo: `Pipeline activo: ${fmtUF(stats.montoPipe)} en juego`,
+      detalle: `${stats.pipeline.length} propuestas entre cotización enviada y negociación. Aplicando tu tasa histórica de ${stats.tasaAdj.toFixed(0)}%, esperarías cerrar ~${fmtUF(stats.montoPipe * stats.tasaAdj/100)}.`,
+      accion: "Ejecutar follow-up sistemático esta semana sobre cada propuesta del pipeline. La probabilidad de cierre cae rápido tras 30 días sin contacto."
+    });
+    const hoy = new Date();
+    const estancadas = data.filter(r => {
+      if (r.status !== "Cotización enviada") return false;
+      const d = parseDate(r.ultimo_contacto);
+      if (!d) return true;
+      return (hoy - d) / (1000*60*60*24) > 60;
+    });
+    if (estancadas.length > 0) items.push({
+      tipo: "alerta", titulo: `${estancadas.length} cotización(es) sin movimiento +60 días`,
+      detalle: `Suman ${fmtUF(estancadas.reduce((s,r) => s+(r.monto||0), 0))} en proyectos: ${estancadas.slice(0,3).map(e => e.proyecto).join(", ")}${estancadas.length > 3 ? "..." : ""}`,
+      accion: "Llamar (no email) esta semana. Si no contestan en 2 intentos, marcar perdido y reciclar pipeline. La data sucia distorsiona los KPIs."
+    });
+    if (stats.concentracion > 50) {
+      items.push({
+        tipo: "riesgo", titulo: `Concentración alta de cartera: ${stats.concentracion.toFixed(0)}% en top 3 clientes`,
+        detalle: "Si uno se enfría, el impacto es proporcional. Es un riesgo de continuidad operativa.",
+        accion: "Diversificar prospección: definir 5-10 cuentas objetivo nuevas para Q próximo y trabajar outbound dedicado."
+      });
+    } else if (stats.concentracion > 0) {
+      items.push({
+        tipo: "info", titulo: `Concentración cartera: ${stats.concentracion.toFixed(0)}% en top 3`,
+        detalle: "Diversificación razonable. Sigue construyendo base ancha de clientes recurrentes.",
+        accion: "Mantener ratio. Ningún cliente debería superar el 35% de los estudios anuales."
+      });
+    }
+    const sinContacto = data.filter(r => !r.email && !r.telefono && r.status !== "Servicios menores");
+    if (sinContacto.length > 0) items.push({
+      tipo: "alerta", titulo: `${sinContacto.length} contacto(s) sin datos de contacto registrados`,
+      detalle: "Imposible hacer follow-up automatizado o reactivar cuentas frías sin email/teléfono.",
+      accion: "Higienizar la base: bloquear 30 minutos esta semana para completar campos faltantes vía LinkedIn o búsqueda directa."
+    });
+    return items;
+}
+
+// ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.4.0";
+const APP_VERSION = "v6.5.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -728,151 +878,10 @@ function App() {
   useEffect(() => { if (isOffline) lsSet("soil_propuestas_notes_v1", notes); }, [notes]);
 
   // CÁLCULOS
-  const stats = useMemo(() => {
-    const total      = data.length;
-    const adj        = data.filter(d => d.status === "Proyecto adjudicado");
-    const rech       = data.filter(d => d.status === "Proyecto rechazado");
-    const pipeline   = data.filter(d => d.status === "Cotización enviada" || d.status === "Negociación proyecto");
-    const standby    = data.filter(d => d.status === "Stand by");
-    const decididas  = adj.length + rech.length;
-    const tasaAdj    = decididas ? (adj.length / decididas * 100) : 0;
-    const montoAdj   = adj.reduce((s,r) => s + (r.monto || 0), 0);
-    const montoPipe  = pipeline.reduce((s,r) => s + (r.monto || 0), 0);
-    const montoStandby = standby.reduce((s,r) => s + (r.monto || 0), 0);
-    const montoRech  = rech.reduce((s,r) => s + (r.monto || 0), 0);
-    const adjConMonto = adj.filter(r => r.monto > 0);
-    const ticketAdj  = adjConMonto.length ? montoAdj / adjConMonto.length : 0;
-
-    const porStatus = STATUS_LIST.map(s => {
-      const arr = data.filter(d => d.status === s);
-      return { status: s, n: arr.length, monto: arr.reduce((a,r) => a + (r.monto||0), 0), color: STATUS_CONFIG[s].color };
-    }).filter(x => x.n > 0);
-
-    const clienteMap = {};
-    data.forEach(r => {
-      if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { cliente: r.cliente, n: 0, adj: 0, rech: 0, pipe: 0, monto: 0, montoAdj: 0 };
-      const c = clienteMap[r.cliente];
-      c.n++;
-      c.monto += r.monto || 0;
-      if (r.status === "Proyecto adjudicado") { c.adj++; c.montoAdj += r.monto || 0; }
-      if (r.status === "Proyecto rechazado")  c.rech++;
-      if (r.status === "Cotización enviada" || r.status === "Negociación proyecto") c.pipe++;
-    });
-    const clientes = Object.values(clienteMap).map(c => ({
-      ...c,
-      tasa: (c.adj + c.rech) ? (c.adj / (c.adj + c.rech) * 100) : null
-    })).sort((a,b) => b.n - a.n);
-
-    const servMap = {};
-    data.forEach(r => {
-      const lista = (r.servicios || "").split(",").map(s => s.trim()).filter(Boolean);
-      lista.forEach(s => {
-        if (!servMap[s]) servMap[s] = { servicio: s, total: 0, adj: 0, rech: 0, montoAdj: 0, proyectosAdj: 0 };
-        servMap[s].total++;
-        if (r.status === "Proyecto adjudicado") {
-          servMap[s].adj++;
-          // Valorización: como un proyecto puede tener N servicios, repartimos el monto en partes iguales
-          // (no es perfecto pero es la mejor estimación con la data que tenemos)
-          if ((r.monto || 0) > 0 && lista.length > 0) {
-            servMap[s].montoAdj += (r.monto / lista.length);
-            servMap[s].proyectosAdj++;
-          }
-        }
-        if (r.status === "Proyecto rechazado")  servMap[s].rech++;
-      });
-    });
-    const servicios = Object.values(servMap).map(s => ({
-      ...s,
-      tasa: (s.adj + s.rech) ? (s.adj / (s.adj + s.rech) * 100) : null
-    })).sort((a,b) => b.total - a.total);
-
-    // Ranking por valorización (para informe ejecutivo)
-    const serviciosValorizados = [...servicios].filter(s => s.adj > 0).sort((a,b) => b.montoAdj - a.montoAdj);
-
-    const tendMap = {};
-    data.forEach(r => {
-      const d = parseDate(r.ultimo_contacto);
-      if (!d) return;
-      const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-      if (!tendMap[k]) tendMap[k] = { mes: k, total: 0, adj: 0, monto: 0 };
-      tendMap[k].total++;
-      tendMap[k].monto += r.monto || 0;
-      if (r.status === "Proyecto adjudicado") tendMap[k].adj++;
-    });
-    const tendencia = Object.values(tendMap).sort((a,b) => a.mes.localeCompare(b.mes));
-
-    const top3n = clientes.slice(0,3).reduce((s,c) => s + c.n, 0);
-    const concentracion = total ? (top3n / total * 100) : 0;
-
-    return { total, adj, rech, pipeline, standby, decididas, tasaAdj, montoAdj, montoPipe, montoStandby, montoRech, ticketAdj, porStatus, clientes, servicios, serviciosValorizados, tendencia, concentracion };
-  }, [data]);
+  const stats = useMemo(() => calcularStats(data), [data]);
 
   // INSIGHTS
-  const insights = useMemo(() => {
-    const items = [];
-    const recurrentes = stats.clientes.filter(c => c.n >= 3);
-    const estrella = recurrentes.filter(c => c.tasa !== null && c.tasa >= 70).sort((a,b) => b.adj - a.adj)[0];
-    if (estrella) items.push({
-      tipo: "ganador", titulo: `${estrella.cliente} es tu cliente ancla`,
-      detalle: `${estrella.adj}/${estrella.adj+estrella.rech} adjudicados (${estrella.tasa.toFixed(0)}%) — ${fmtUF(estrella.montoAdj)} facturados.`,
-      accion: "Consolidar cuenta clave: agendar reunión trimestral, ofrecer paquete preferente, mantener contacto activo aunque no haya licitación abierta."
-    });
-    const riesgo = recurrentes.filter(c => c.tasa !== null && c.tasa <= 40 && (c.adj + c.rech) >= 2).sort((a,b) => a.tasa - b.tasa)[0];
-    if (riesgo) items.push({
-      tipo: "riesgo", titulo: `${riesgo.cliente}: tasa de éxito baja`,
-      detalle: `Solo ${riesgo.adj}/${riesgo.adj+riesgo.rech} adjudicados (${riesgo.tasa.toFixed(0)}%). Has invertido tiempo en ${riesgo.n} estudios.`,
-      accion: "Revisar postmortems: ¿precio, plazo o relación? Pedir feedback explícito al contacto. Antes de cotizar el próximo, calificar si vale la pena el esfuerzo."
-    });
-    const servGanador = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa >= 70).sort((a,b) => b.tasa - a.tasa)[0];
-    if (servGanador) items.push({
-      tipo: "ganador", titulo: `"${servGanador.servicio}" es tu servicio más competitivo`,
-      detalle: `${servGanador.adj}/${servGanador.adj+servGanador.rech} adjudicados (${servGanador.tasa.toFixed(0)}%). Tu propuesta de valor aquí es fuerte.`,
-      accion: "Apalancar: priorizar este servicio en marketing (LinkedIn, sitio web), buscar proyectos donde sea el componente principal, generar caso de éxito documentado."
-    });
-    const servProblema = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa <= 30).sort((a,b) => a.tasa - b.tasa)[0];
-    if (servProblema) items.push({
-      tipo: "riesgo", titulo: `"${servProblema.servicio}" tiene baja conversión`,
-      detalle: `Apenas ${servProblema.adj}/${servProblema.adj+servProblema.rech} adjudicados (${servProblema.tasa.toFixed(0)}%) sobre ${servProblema.total} cotizaciones.`,
-      accion: "Diagnosticar: ¿precio fuera de mercado, mucha competencia, o no es tu sweet spot? Considerar subcontratar, asociar o dejar de cotizarlo standalone."
-    });
-    if (stats.montoPipe > 0) items.push({
-      tipo: "oportunidad", titulo: `Pipeline activo: ${fmtUF(stats.montoPipe)} en juego`,
-      detalle: `${stats.pipeline.length} propuestas entre cotización enviada y negociación. Aplicando tu tasa histórica de ${stats.tasaAdj.toFixed(0)}%, esperarías cerrar ~${fmtUF(stats.montoPipe * stats.tasaAdj/100)}.`,
-      accion: "Ejecutar follow-up sistemático esta semana sobre cada propuesta del pipeline. La probabilidad de cierre cae rápido tras 30 días sin contacto."
-    });
-    const hoy = new Date();
-    const estancadas = data.filter(r => {
-      if (r.status !== "Cotización enviada") return false;
-      const d = parseDate(r.ultimo_contacto);
-      if (!d) return true;
-      return (hoy - d) / (1000*60*60*24) > 60;
-    });
-    if (estancadas.length > 0) items.push({
-      tipo: "alerta", titulo: `${estancadas.length} cotización(es) sin movimiento +60 días`,
-      detalle: `Suman ${fmtUF(estancadas.reduce((s,r) => s+(r.monto||0), 0))} en proyectos: ${estancadas.slice(0,3).map(e => e.proyecto).join(", ")}${estancadas.length > 3 ? "..." : ""}`,
-      accion: "Llamar (no email) esta semana. Si no contestan en 2 intentos, marcar perdido y reciclar pipeline. La data sucia distorsiona los KPIs."
-    });
-    if (stats.concentracion > 50) {
-      items.push({
-        tipo: "riesgo", titulo: `Concentración alta de cartera: ${stats.concentracion.toFixed(0)}% en top 3 clientes`,
-        detalle: "Si uno se enfría, el impacto es proporcional. Es un riesgo de continuidad operativa.",
-        accion: "Diversificar prospección: definir 5-10 cuentas objetivo nuevas para Q próximo y trabajar outbound dedicado."
-      });
-    } else if (stats.concentracion > 0) {
-      items.push({
-        tipo: "info", titulo: `Concentración cartera: ${stats.concentracion.toFixed(0)}% en top 3`,
-        detalle: "Diversificación razonable. Sigue construyendo base ancha de clientes recurrentes.",
-        accion: "Mantener ratio. Ningún cliente debería superar el 35% de los estudios anuales."
-      });
-    }
-    const sinContacto = data.filter(r => !r.email && !r.telefono && r.status !== "Servicios menores");
-    if (sinContacto.length > 0) items.push({
-      tipo: "alerta", titulo: `${sinContacto.length} contacto(s) sin datos de contacto registrados`,
-      detalle: "Imposible hacer follow-up automatizado o reactivar cuentas frías sin email/teléfono.",
-      accion: "Higienizar la base: bloquear 30 minutos esta semana para completar campos faltantes vía LinkedIn o búsqueda directa."
-    });
-    return items;
-  }, [data, stats]);
+  const insights = useMemo(() => calcularInsights(data, stats), [data, stats]);
 
   const filtered = useMemo(() => {
     let r = data.filter(d => {
@@ -1993,13 +2002,80 @@ function NuevaPropuestaModal({ onClose, onSave, directorio = [] }) {
 // ============================================================================
 // INFORME EJECUTIVO
 // ============================================================================
-function InformeEjecutivo({ stats, insights, data, ufClp }) {
+function InformeEjecutivo({ stats: statsGlobal, insights: insightsGlobal, data, ufClp }) {
   const fechaInforme = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
-  const pipelineProyectado = stats.montoPipe * stats.tasaAdj / 100;
   const tagMap = { ganador: "Oportunidad consolidada", riesgo: "Riesgo identificado", oportunidad: "Oportunidad", alerta: "Alerta operativa", info: "Observación" };
 
   // Toggle de moneda — el usuario decide cómo presentar a gerencia
   const [moneda, setMoneda] = useState("UF"); // "UF" | "CLP" | "ambos"
+
+  // ===== Acotar el informe a un período =====
+  // La fecha de referencia es el último contacto de cada propuesta, que es el
+  // dato comercial que maneja el equipo.
+  const hoy = new Date();
+  const [modo, setModo]   = useState("todo");   // todo | anio | semestre | trimestre | mes | personalizado
+  const [anio, setAnio]   = useState(hoy.getFullYear());
+  const [sem, setSem]     = useState(hoy.getMonth() < 6 ? 1 : 2);
+  const [tri, setTri]     = useState(Math.floor(hoy.getMonth() / 3) + 1);
+  const [mes, setMes]     = useState(hoy.getMonth() + 1);
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+
+  // Años presentes en la cartera, para no ofrecer períodos vacíos
+  const aniosDisponibles = useMemo(() => {
+    const set = new Set();
+    (data || []).forEach(r => { const d = parseDate(r.ultimo_contacto); if (d) set.add(d.getFullYear()); });
+    const arr = [...set].sort((a, b) => b - a);
+    return arr.length ? arr : [hoy.getFullYear()];
+  }, [data]);
+
+  const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const fmtDia = (d) => d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  // Rango efectivo [inicio, fin] según el modo elegido
+  const rango = useMemo(() => {
+    if (modo === "todo") return null;
+    if (modo === "personalizado") {
+      if (!desde || !hasta) return null;
+      const i = new Date(desde + "T00:00:00"), f = new Date(hasta + "T23:59:59");
+      return isNaN(i) || isNaN(f) || f < i ? null : { i, f };
+    }
+    if (modo === "anio")      return { i: new Date(anio, 0, 1), f: new Date(anio, 11, 31, 23, 59, 59) };
+    if (modo === "semestre")  { const m0 = sem === 1 ? 0 : 6; return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 6, 0, 23, 59, 59) }; }
+    if (modo === "trimestre") { const m0 = (tri - 1) * 3;     return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 3, 0, 23, 59, 59) }; }
+    if (modo === "mes")       return { i: new Date(anio, mes - 1, 1), f: new Date(anio, mes, 0, 23, 59, 59) };
+    return null;
+  }, [modo, anio, sem, tri, mes, desde, hasta]);
+
+  const etiquetaPeriodo = useMemo(() => {
+    if (!rango) return "Histórico completo";
+    if (modo === "anio")      return `Año ${anio}`;
+    if (modo === "semestre")  return `${sem}° semestre ${anio}`;
+    if (modo === "trimestre") return `${tri}° trimestre ${anio}`;
+    if (modo === "mes")       return `${MESES_ES[mes - 1]} ${anio}`;
+    return `${fmtDia(rango.i)} al ${fmtDia(rango.f)}`;
+  }, [rango, modo, anio, sem, tri, mes]);
+
+  // Propuestas dentro del período. Las que no tienen fecha quedan fuera y se avisa.
+  const dataPeriodo = useMemo(() => {
+    if (!rango) return data;
+    return (data || []).filter(r => {
+      const d = parseDate(r.ultimo_contacto);
+      return d && d >= rango.i && d <= rango.f;
+    });
+  }, [data, rango]);
+
+  const sinFecha = useMemo(
+    () => (rango ? (data || []).filter(r => !parseDate(r.ultimo_contacto)).length : 0),
+    [data, rango]
+  );
+
+  // Con período activo recalculamos todo sobre el subconjunto
+  const stats    = useMemo(() => (rango ? calcularStats(dataPeriodo) : statsGlobal), [rango, dataPeriodo, statsGlobal]);
+  const insights = useMemo(() => (rango ? calcularInsights(dataPeriodo, stats) : insightsGlobal), [rango, dataPeriodo, stats, insightsGlobal]);
+
+  const pipelineProyectado = stats.montoPipe * stats.tasaAdj / 100;
+  const selCls = "text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0D2B5E]";
 
   // Helper que respeta la elección
   const fmtMonto = (uf) => {
@@ -2011,7 +2087,54 @@ function InformeEjecutivo({ stats, insights, data, ufClp }) {
   return (
     <div data-printable className="bg-white text-slate-900 rounded shadow-2xl">
       <div className="no-print bg-slate-100 p-4 border-b border-slate-300 flex items-center justify-between flex-wrap gap-3">
-        <div className="text-sm text-slate-700">Vista previa del informe ejecutivo. Listo para imprimir o guardar como PDF.</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-slate-600 uppercase tracking-wider font-semibold">Período:</span>
+          <select value={modo} onChange={e => setModo(e.target.value)} className={selCls}>
+            <option value="todo">Histórico completo</option>
+            <option value="anio">Año</option>
+            <option value="semestre">Semestre</option>
+            <option value="trimestre">Trimestre</option>
+            <option value="mes">Mes</option>
+            <option value="personalizado">Fechas personalizadas</option>
+          </select>
+
+          {["anio", "semestre", "trimestre", "mes"].includes(modo) && (
+            <select value={anio} onChange={e => setAnio(parseInt(e.target.value))} className={selCls}>
+              {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          )}
+          {modo === "semestre" && (
+            <select value={sem} onChange={e => setSem(parseInt(e.target.value))} className={selCls}>
+              <option value={1}>1° semestre (ene–jun)</option>
+              <option value={2}>2° semestre (jul–dic)</option>
+            </select>
+          )}
+          {modo === "trimestre" && (
+            <select value={tri} onChange={e => setTri(parseInt(e.target.value))} className={selCls}>
+              <option value={1}>1° trimestre (ene–mar)</option>
+              <option value={2}>2° trimestre (abr–jun)</option>
+              <option value={3}>3° trimestre (jul–sep)</option>
+              <option value={4}>4° trimestre (oct–dic)</option>
+            </select>
+          )}
+          {modo === "mes" && (
+            <select value={mes} onChange={e => setMes(parseInt(e.target.value))} className={selCls}>
+              {MESES_ES.map((m, i) => <option key={i} value={i + 1}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
+            </select>
+          )}
+          {modo === "personalizado" && (
+            <div className="flex items-center gap-1">
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className={selCls} />
+              <span className="text-xs text-slate-500">al</span>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className={selCls} />
+            </div>
+          )}
+
+          <span className="text-xs text-slate-500 ml-1">
+            {dataPeriodo.length} de {(data || []).length} propuestas
+            {sinFecha > 0 && <span className="text-amber-600" title="Propuestas sin fecha de último contacto: quedan fuera de cualquier período"> · {sinFecha} sin fecha</span>}
+          </span>
+        </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-600 uppercase tracking-wider font-semibold">Mostrar montos en:</span>
@@ -2038,12 +2161,17 @@ function InformeEjecutivo({ stats, insights, data, ufClp }) {
               <div className="text-xs uppercase tracking-[0.3em] text-slate-500 mb-2">Soil Limitada · Reporte interno</div>
               <h1 className="display-font text-5xl font-black uppercase text-[#0D2B5E]">Informe ejecutivo</h1>
               <h2 className="display-font text-2xl font-bold uppercase text-slate-700 mt-1">Pipeline comercial</h2>
+              <div className="mt-2 inline-block border-l-4 border-[#CC1414] pl-3">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Período del informe</div>
+                <div className="text-base font-bold text-[#0D2B5E]">{etiquetaPeriodo}</div>
+              </div>
             </div>
             <div className="text-right">
               <div className="w-16 h-16 rounded bg-[#CC1414] flex items-center justify-center mb-2 ml-auto">
                 <span className="display-font text-white text-3xl font-black">S</span>
               </div>
-              <div className="text-xs text-slate-500">{fechaInforme}</div>
+              <div className="text-xs text-slate-500">Emitido el {fechaInforme}</div>
+              <div className="text-xs text-slate-500 mt-1">{stats.total} propuestas</div>
             </div>
           </div>
         </div>

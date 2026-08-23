@@ -34,6 +34,8 @@
 <!-- jsPDF standalone: el bundle de html2pdf no expone el constructor globalmente.
      Debe cargarse ANTES del plugin autotable para que este se enganche. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- svg2pdf: incrusta el logotipo SVG como vector real dentro del PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg2pdf.js/2.2.3/svg2pdf.umd.min.js"></script>
 <!-- jsPDF AutoTable: tablas vectoriales para el PDF nativo de estados de pago -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
@@ -66,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.2 · BUILD 2026-08-21</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.3.3 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -82,8 +84,8 @@ const {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.3.2";
-const APP_BUILD   = "2026-08-21";
+const APP_VERSION = "v6.3.3";
+const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
 // SUPABASE CONFIG — REEMPLAZAR CON TUS CREDENCIALES (paso 1.3 de la guía)
@@ -4715,6 +4717,28 @@ function CotizacionesDePropuesta({ propuestaId, ufClp }) {
   );
 }
 
+// Logotipo corporativo. Vive como archivo aparte (logo.svg) para no inflar este
+// documento y para que el navegador lo cachee. Se usa en la vista previa y se
+// incrusta como vector real dentro del PDF mediante svg2pdf.
+const LOGO_URL   = "logo.svg";
+const LOGO_RATIO = 953 / 284;          // ancho / alto del viewBox
+let _logoTexto = null;
+const cargarLogo = async () => {
+  if (_logoTexto !== null) return _logoTexto;
+  try {
+    const r = await fetch(LOGO_URL, { cache: "force-cache" });
+    _logoTexto = r.ok ? await r.text() : "";
+  } catch (e) { _logoTexto = ""; }
+  return _logoTexto;
+};
+// Devuelve el <svg> como nodo del DOM, que es lo que necesita svg2pdf
+const logoNodo = async () => {
+  const t = await cargarLogo();
+  if (!t) return null;
+  const d = document.createElement("div"); d.innerHTML = t;
+  return d.firstElementChild;
+};
+
 // ============================================================================
 // ESTADOS DE PAGO — generador para cobro de servicios al mandante
 // Replica la estructura de las planillas Soil: itemizado contractual +
@@ -4862,12 +4886,11 @@ function EPPreview({ ep, calc }) {
     <div style={S.page}>
       {/* Encabezado con logo */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", borderBottom: "2px solid #CC1414", paddingBottom: "8px", marginBottom: "10px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ width: "42px", height: "42px", background: "#CC1414", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Barlow Condensed',Impact,sans-serif", fontSize: "28px", fontWeight: 900, borderRadius: "3px" }}>S</div>
-          <div>
-            <div style={{ fontFamily: "'Barlow Condensed',Impact,sans-serif", fontSize: "19px", fontWeight: 900, color: "#0D2B5E", lineHeight: 1 }}>SOIL LIMITADA</div>
-            <div style={{ fontSize: "7.5px", color: "#64748b", letterSpacing: "0.08em" }}>SOCIEDAD CONSTRUCTORA E INVERSIONES · OBRAS PREVIAS</div>
-            <div style={{ fontSize: "7.5px", color: "#64748b" }}>RUT 76.495.833-0 · www.soilconstructora.cl</div>
+        <div>
+          <img src={LOGO_URL} alt="Soil Ltda. — Obras Previas"
+               style={{ width: "204px", height: "auto", display: "block" }} />
+          <div style={{ fontSize: "7.5px", color: "#64748b", letterSpacing: "0.04em", marginTop: "4px" }}>
+            SOCIEDAD CONSTRUCTORA E INVERSIONES · RUT 76.495.833-0 · www.soilconstructora.cl
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -5222,7 +5245,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
   // No rasteriza: dibuja texto y tablas reales, así el documento queda en calidad
   // de impresión, con texto seleccionable, buscable, resaltable y comentable, y
   // con campos rellenables para que el mandante escriba y firme digitalmente.
-  const exportarPDF = () => {
+  const exportarPDF = async () => {
     const JS = window.jspdf && window.jspdf.jsPDF;
     if (!JS) { flash("Librería PDF no cargó. Refresca la página.", "err"); return; }
     flash("Generando PDF...");
@@ -5238,25 +5261,48 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
       const pctT = (v) => fmtNum((v || 0) * 100, 1) + "%";
       const clp  = (v) => (esUF && uf > 0 ? "$" + fmtNum(v * uf, 0) : "");
 
-      // ---------- Encabezado con logotipo ----------
-      doc.setFillColor(ROJO[0], ROJO[1], ROJO[2]);
-      doc.roundedRect(M, M, 13, 13, 1, 1, "F");
-      doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(17);
-      doc.text("S", M + 6.5, M + 9.8, { align: "center" });
+      // ---------- Encabezado con logotipo vectorial ----------
+      const LOGO_W = 54;                       // mm
+      const LOGO_H = LOGO_W / LOGO_RATIO;      // ≈ 16.1 mm
+      let logoOk = false;
+      try {
+        const nodo = await logoNodo();
+        if (nodo && typeof doc.svg === "function") {
+          await doc.svg(nodo, { x: M, y: M, width: LOGO_W, height: LOGO_H });
+          logoOk = true;                        // queda como vector real dentro del PDF
+        }
+      } catch (e) { logoOk = false; }
+      if (!logoOk) {
+        // Respaldo: rasteriza el SVG a alta resolución (≈600 ppp) y lo incrusta
+        try {
+          const img = new Image();
+          await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = LOGO_URL; });
+          const cv = document.createElement("canvas");
+          cv.width = Math.round(LOGO_W * 24); cv.height = Math.round(LOGO_H * 24);
+          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+          doc.addImage(cv.toDataURL("image/png"), "PNG", M, M, LOGO_W, LOGO_H, undefined, "FAST");
+          logoOk = true;
+        } catch (e) { logoOk = false; }
+      }
+      if (!logoOk) {   // último recurso: marca tipográfica
+        doc.setFillColor(ROJO[0], ROJO[1], ROJO[2]);
+        doc.roundedRect(M, M, 13, 13, 1, 1, "F");
+        doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(17);
+        doc.text("S", M + 6.5, M + 9.8, { align: "center" });
+        doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]); doc.setFontSize(15);
+        doc.text("SOIL LIMITADA", M + 16, M + 8);
+      }
 
-      doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]); doc.setFontSize(15);
-      doc.text("SOIL LIMITADA", M + 16, M + 6);
       doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
-      doc.text("SOCIEDAD CONSTRUCTORA E INVERSIONES · OBRAS PREVIAS", M + 16, M + 10);
-      doc.text("RUT 76.495.833-0 · www.soilconstructora.cl", M + 16, M + 13.4);
+      doc.text("SOCIEDAD CONSTRUCTORA E INVERSIONES · RUT 76.495.833-0 · www.soilconstructora.cl", M, M + LOGO_H + 4.2);
 
       doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
-      doc.text("ESTADO DE PAGO N°" + ep.numero_ep, W - M, M + 6, { align: "right" });
+      doc.text("ESTADO DE PAGO N°" + ep.numero_ep, W - M, M + 7, { align: "right" });
       doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
-      doc.text("Revisión " + (ep.revision || "0") + "  ·  " + ep.estado, W - M, M + 10.8, { align: "right" });
+      doc.text("Revisión " + (ep.revision || "0") + "  ·  " + ep.estado, W - M, M + 12, { align: "right" });
 
       doc.setDrawColor(ROJO[0], ROJO[1], ROJO[2]); doc.setLineWidth(0.7);
-      doc.line(M, M + 16.5, W - M, M + 16.5);
+      doc.line(M, M + LOGO_H + 7, W - M, M + LOGO_H + 7);
 
       // ---------- Datos del contrato ----------
       const colX = [M, M + ANCHO / 3, M + 2 * ANCHO / 3];
@@ -5267,7 +5313,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
         doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
         doc.text(doc.splitTextToSize(String(val || "—"), colW), colX[i], yy + 4.2);
       };
-      let y = M + 22;
+      let y = M + LOGO_H + 12.5;
       dato(0, y, "Mandante / Cliente", ep.cliente, true);
       dato(1, y, "Proyecto / Contrato", ep.proyecto, true);
       dato(2, y, "Fecha de emisión", ep.fecha, true);

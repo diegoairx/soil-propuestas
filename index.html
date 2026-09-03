@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.1 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.5.0";
+const APP_VERSION = "v6.5.1";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -4709,6 +4709,40 @@ function CotizacionesDePropuesta({ propuestaId, ufClp }) {
 // Logotipo corporativo. Vive como archivo aparte (logo.svg) para no inflar este
 // documento y para que el navegador lo cachee. Se usa en la vista previa y se
 // incrusta como vector real dentro del PDF mediante svg2pdf.
+// Firma escaneada de Soil. Se busca primero el PNG: si algun dia se reemplaza
+// la firma basta con dejar firma-soil.png en el repo y toma precedencia sola.
+// El .txt es el respaldo (mismo PNG como data URI) y es el que se usa hoy.
+const FIRMA_PNG   = "firma-soil.png";
+const FIRMA_TXT   = "firma-soil.txt";
+const FIRMA_RATIO = 420 / 271;          // ancho / alto de la imagen
+let _firmaSoil = null;
+const cargarFirmaSoil = async () => {
+  if (_firmaSoil !== null) return _firmaSoil;
+  _firmaSoil = "";
+  try {
+    const r = await fetch(FIRMA_PNG, { cache: "force-cache" });
+    if (r.ok) {
+      const blob = await r.blob();
+      if (blob.size > 100 && blob.type.indexOf("image") === 0) {
+        _firmaSoil = await new Promise((res) => {
+          const fr = new FileReader();
+          fr.onload  = () => res(String(fr.result || ""));
+          fr.onerror = () => res("");
+          fr.readAsDataURL(blob);
+        });
+      }
+    }
+  } catch (e) {}
+  if (!_firmaSoil) {
+    try {
+      const r2 = await fetch(FIRMA_TXT, { cache: "force-cache" });
+      const t = r2.ok ? (await r2.text()).trim() : "";
+      if (t.indexOf("data:image") === 0) _firmaSoil = t;
+    } catch (e) {}
+  }
+  return _firmaSoil;
+};
+
 const LOGO_URL   = "logo.svg";
 const LOGO_RATIO = 953 / 284;          // ancho / alto del viewBox
 let _logoTexto = null;
@@ -5417,9 +5451,9 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
 
       bloque(M + bw + 6, "Liquidación del presente estado de pago", [
         ["(=) Avance del período", calc.periodo],
-        ["(−) Retención " + pctT(ep.retencion_pct), calc.retencion],
-        ep.anticipo_dev_pct > 0 ? ["(−) Devolución anticipo " + pctT(ep.anticipo_dev_pct), calc.devAnticipo] : null,
-        calc.otros > 0 ? ["(−) " + (ep.otros_glosa || "Otros descuentos"), calc.otros] : null,
+        ["(-) Retención " + pctT(ep.retencion_pct), calc.retencion],
+        ep.anticipo_dev_pct > 0 ? ["(-) Devolución anticipo " + pctT(ep.anticipo_dev_pct), calc.devAnticipo] : null,
+        calc.otros > 0 ? ["(-) " + (ep.otros_glosa || "Otros descuentos"), calc.otros] : null,
         ["Total neto", calc.neto, { top: true, strong: true }],
         ["(+) IVA " + pctT(ep.iva_pct), calc.iva],
         ["TOTAL A PAGAR", calc.totalPagar, { top: true, strong: true, big: true }]
@@ -5428,7 +5462,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
 
       // ---------- Observaciones del mandante (campo rellenable) ----------
       const ALTO_OBS = 26;
-      if (y + ALTO_OBS + 34 > H - M) { doc.addPage(); y = M + 4; }
+      if (y + ALTO_OBS + 48 > H - M) { doc.addPage(); y = M + 4; }
       doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.25);
       doc.roundedRect(M, y, ANCHO, ALTO_OBS, 1.2, 1.2, "S");
       doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]);
@@ -5453,30 +5487,47 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
 
       // ---------- Firmas ----------
       const fw = (ANCHO - 20) / 2;
-      const firma = (x, nombre, cargo, empresa, campoId) => {
+      const ALTO_F = 34;
+      const imgFirma = await cargarFirmaSoil();
+      const firma = (x, nombre, cargo, empresa, campoId, conImagen) => {
         doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.25);
-        doc.roundedRect(x, y, fw, 22, 1.2, 1.2, "S");
+        doc.roundedRect(x, y, fw, ALTO_F, 1.2, 1.2, "S");
         doc.setFont("helvetica", "normal"); doc.setFontSize(6);
         doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
         doc.text("FIRMA / TIMBRE", x + 3, y + 4);
+
+        // Firma escaneada de Soil: se dibuja cruzando la linea, como en papel
+        let firmada = false;
+        if (conImagen && imgFirma) {
+          try {
+            const anchoF = 34, altoF = anchoF / FIRMA_RATIO;
+            doc.addImage(imgFirma, "PNG", x + fw / 2 - anchoF / 2, y + 4.5, anchoF, altoF, "firmaSoil", "FAST");
+            firmada = true;
+          } catch (e) { /* si falla la imagen, queda el recuadro para firmar a mano */ }
+        }
+
         doc.setDrawColor(71, 85, 105); doc.setLineWidth(0.3);
-        doc.line(x + 8, y + 15, x + fw - 8, y + 15);
+        doc.line(x + 8, y + 25, x + fw - 8, y + 25);
         doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(30, 41, 59);
-        doc.text(String(nombre || ""), x + fw / 2, y + 18.5, { align: "center" });
+        doc.text(String(nombre || ""), x + fw / 2, y + 28.5, { align: "center" });
         doc.setFont("helvetica", "normal"); doc.setFontSize(6.6); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]);
-        doc.text(String(cargo || "") + (empresa ? "  ·  " + empresa : ""), x + fw / 2, y + 21.4, { align: "center" });
-        try {
-          const AF = window.jspdf.AcroFormTextField;
-          if (AF) {
-            const c = new AF();
-            c.fieldName = campoId; c.fontSize = 9;
-            c.Rect = [x + 8, y + 6, fw - 16, 8];
-            doc.addField(c);
-          }
-        } catch (e) {}
+        doc.text(String(cargo || "") + (empresa ? "  ·  " + empresa : ""), x + fw / 2, y + 31.4, { align: "center" });
+
+        // Campo rellenable solo donde no hay firma impresa
+        if (!firmada) {
+          try {
+            const AF = window.jspdf.AcroFormTextField;
+            if (AF) {
+              const c = new AF();
+              c.fieldName = campoId; c.fontSize = 9;
+              c.Rect = [x + 8, y + 8, fw - 16, 14];
+              doc.addField(c);
+            }
+          } catch (e) {}
+        }
       };
-      firma(M, ep.firma_soil, ep.cargo_soil, "Soil Limitada", "firma_soil");
-      firma(M + fw + 20, ep.firma_cliente, ep.cargo_cliente, ep.cliente, "firma_mandante");
+      firma(M, ep.firma_soil, ep.cargo_soil, "Soil Limitada", "firma_soil", true);
+      firma(M + fw + 20, ep.firma_cliente, ep.cargo_cliente, ep.cliente, "firma_mandante", false);
 
       // ---------- Pie de página ----------
       const total = doc.internal.getNumberOfPages();

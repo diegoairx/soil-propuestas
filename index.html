@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.2 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.5.1";
+const APP_VERSION = "v6.5.2";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -5426,7 +5426,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
           doc.text(String(lbl), x + 3, yy);
           doc.setFont("helvetica", o.strong ? "bold" : "normal");
           doc.setFontSize(o.big ? 11 : 8);
-          if (o.strong) doc.setTextColor(ROJO[0], ROJO[1], ROJO[2]); else doc.setTextColor(15, 23, 42);
+          if (o.strong) doc.setTextColor(AZUL[0], AZUL[1], AZUL[2]); else doc.setTextColor(15, 23, 42);
           const eq = clp(val);
           doc.text(sim + " " + nm(val), x + bw - 3 - (eq ? 26 : 0), yy, { align: "right" });
           if (eq) {

@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.5.2 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.6.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.5.2";
+const APP_VERSION = "v6.6.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -1150,10 +1150,10 @@ function App() {
         <nav className="max-w-[1600px] mx-auto px-6 flex gap-1 overflow-x-auto">
           {[
             { id: "dashboard",   label: "Dashboard",   icon: "chart" },
-            { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
+            { id: "informe",     label: "Informe",     icon: "file" },
             { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
-            { id: "estadospago", label: "Estados de Pago", icon: "dollar" },
-            { id: "informe",     label: "Informe",     icon: "file" }
+            { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
+            { id: "estadospago", label: "Estados de Pago", icon: "dollar" }
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-5 py-3 text-sm uppercase tracking-wider font-semibold flex items-center gap-2 transition border-b-2 whitespace-nowrap
@@ -1165,7 +1165,7 @@ function App() {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-6 py-8">
-        {tab === "dashboard" && <Dashboard stats={stats} ufClp={ufClp} />}
+        {tab === "dashboard" && <Dashboard stats={stats} ufClp={ufClp} data={data} />}
         {tab === "propuestas" && <Propuestas
           ufClp={ufClp}
           data={filtered} totalData={data} clientesUnicos={clientesUnicos}
@@ -1198,7 +1198,147 @@ function App() {
 // ============================================================================
 // DASHBOARD
 // ============================================================================
-function Dashboard({ stats, ufClp }) {
+// ============================================================================
+// FILTRO DE PERÍODO — lógica compartida por Dashboard e Informe
+// La fecha de referencia es el último contacto de cada propuesta.
+// ============================================================================
+function useFiltroPeriodo(data) {
+  // La fecha de referencia es el último contacto de cada propuesta, que es el
+  // dato comercial que maneja el equipo.
+  const hoy = new Date();
+  const [modo, setModo]   = useState("todo");   // todo | anio | semestre | trimestre | mes | mes30 | personalizado
+  const [anio, setAnio]   = useState(hoy.getFullYear());
+  const [sem, setSem]     = useState(hoy.getMonth() < 6 ? 1 : 2);
+  const [tri, setTri]     = useState(Math.floor(hoy.getMonth() / 3) + 1);
+  const [mes, setMes]     = useState(hoy.getMonth() + 1);
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+
+  // Años presentes en la cartera, para no ofrecer períodos vacíos
+  const aniosDisponibles = useMemo(() => {
+    const set = new Set();
+    (data || []).forEach(r => { const d = parseDate(r.ultimo_contacto); if (d) set.add(d.getFullYear()); });
+    const arr = [...set].sort((a, b) => b - a);
+    return arr.length ? arr : [hoy.getFullYear()];
+  }, [data]);
+
+  const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const fmtDia = (d) => d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  // Rango efectivo [inicio, fin] según el modo elegido
+  const rango = useMemo(() => {
+    if (modo === "todo") return null;
+    if (modo === "personalizado") {
+      if (!desde || !hasta) return null;
+      const i = new Date(desde + "T00:00:00"), f = new Date(hasta + "T23:59:59");
+      return isNaN(i) || isNaN(f) || f < i ? null : { i, f };
+    }
+    if (modo === "mes30") {
+      const f = new Date(); f.setHours(23, 59, 59, 999);
+      const i = new Date(f); i.setDate(i.getDate() - 29); i.setHours(0, 0, 0, 0);
+      return { i, f };
+    }
+    if (modo === "anio")      return { i: new Date(anio, 0, 1), f: new Date(anio, 11, 31, 23, 59, 59) };
+    if (modo === "semestre")  { const m0 = sem === 1 ? 0 : 6; return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 6, 0, 23, 59, 59) }; }
+    if (modo === "trimestre") { const m0 = (tri - 1) * 3;     return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 3, 0, 23, 59, 59) }; }
+    if (modo === "mes")       return { i: new Date(anio, mes - 1, 1), f: new Date(anio, mes, 0, 23, 59, 59) };
+    return null;
+  }, [modo, anio, sem, tri, mes, desde, hasta]);
+
+  const etiquetaPeriodo = useMemo(() => {
+    if (!rango) return "Histórico completo";
+    if (modo === "anio")      return `Año ${anio}`;
+    if (modo === "semestre")  return `${sem}° semestre ${anio}`;
+    if (modo === "trimestre") return `${tri}° trimestre ${anio}`;
+    if (modo === "mes")       return `${MESES_ES[mes - 1]} ${anio}`;
+    if (modo === "mes30")     return `Últimos 30 días · ${fmtDia(rango.i)} al ${fmtDia(rango.f)}`;
+    return `${fmtDia(rango.i)} al ${fmtDia(rango.f)}`;
+  }, [rango, modo, anio, sem, tri, mes]);
+
+  // Propuestas dentro del período. Las que no tienen fecha quedan fuera y se avisa.
+  const dataPeriodo = useMemo(() => {
+    if (!rango) return data;
+    return (data || []).filter(r => {
+      const d = parseDate(r.ultimo_contacto);
+      return d && d >= rango.i && d <= rango.f;
+    });
+  }, [data, rango]);
+
+  const sinFecha = useMemo(
+    () => (rango ? (data || []).filter(r => !parseDate(r.ultimo_contacto)).length : 0),
+    [data, rango]
+  );
+
+  return { modo, setModo, anio, setAnio, sem, setSem, tri, setTri, mes, setMes,
+           desde, setDesde, hasta, setHasta, aniosDisponibles, MESES_ES,
+           rango, etiquetaPeriodo, dataPeriodo, sinFecha };
+}
+
+// Barra de período del Dashboard
+function SelectorPeriodo({ fp, total }) {
+  const cls = "text-xs border border-slate-300 rounded px-2 py-1.5 bg-white text-slate-800 focus:outline-none focus:border-[#0D2B5E]";
+  const { modo, setModo, anio, setAnio, sem, setSem, tri, setTri, mes, setMes,
+          desde, setDesde, hasta, setHasta, aniosDisponibles, MESES_ES,
+          dataPeriodo, sinFecha, etiquetaPeriodo } = fp;
+  return (
+    <div className="bg-white border border-slate-200 shadow-sm rounded p-4 flex items-center gap-2 flex-wrap">
+      <span className="text-[10px] uppercase tracking-[0.2em] text-slate-600 font-semibold">Período</span>
+      <select value={modo} onChange={e => setModo(e.target.value)} className={cls}>
+        <option value="todo">Histórico completo</option>
+        <option value="anio">Año</option>
+        <option value="semestre">Semestre</option>
+        <option value="trimestre">Trimestre</option>
+        <option value="mes">Mes</option>
+        <option value="mes30">Último mes (30 días)</option>
+        <option value="personalizado">Fechas personalizadas</option>
+      </select>
+      {["anio", "semestre", "trimestre", "mes"].includes(modo) && (
+        <select value={anio} onChange={e => setAnio(parseInt(e.target.value))} className={cls}>
+          {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+      )}
+      {modo === "semestre" && (
+        <select value={sem} onChange={e => setSem(parseInt(e.target.value))} className={cls}>
+          <option value={1}>1° semestre (ene–jun)</option>
+          <option value={2}>2° semestre (jul–dic)</option>
+        </select>
+      )}
+      {modo === "trimestre" && (
+        <select value={tri} onChange={e => setTri(parseInt(e.target.value))} className={cls}>
+          <option value={1}>1° trimestre (ene–mar)</option>
+          <option value={2}>2° trimestre (abr–jun)</option>
+          <option value={3}>3° trimestre (jul–sep)</option>
+          <option value={4}>4° trimestre (oct–dic)</option>
+        </select>
+      )}
+      {modo === "mes" && (
+        <select value={mes} onChange={e => setMes(parseInt(e.target.value))} className={cls}>
+          {MESES_ES.map((m, i) => <option key={i} value={i + 1}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
+        </select>
+      )}
+      {modo === "personalizado" && (
+        <div className="flex items-center gap-1">
+          <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className={cls} />
+          <span className="text-xs text-slate-500">al</span>
+          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className={cls} />
+        </div>
+      )}
+      <span className="text-xs font-semibold text-[#0D2B5E] ml-1">{etiquetaPeriodo}</span>
+      <span className="text-xs text-slate-500 ml-auto">
+        {(dataPeriodo || []).length} de {total} propuestas
+        {sinFecha > 0 && <span className="text-amber-600" title="Propuestas sin fecha de último contacto: quedan fuera de cualquier período"> · {sinFecha} sin fecha</span>}
+      </span>
+    </div>
+  );
+}
+
+function Dashboard({ stats: statsGlobal, ufClp, data }) {
+  const fp = useFiltroPeriodo(data);
+  // Con período activo el tablero se recalcula sobre el subconjunto
+  const stats = useMemo(
+    () => (fp.rango ? calcularStats(fp.dataPeriodo) : statsGlobal),
+    [fp.rango, fp.dataPeriodo, statsGlobal]
+  );
   const kpis = [
     { label: "Total propuestas",    value: stats.total,                          sub: "estudios registrados",      icon: "briefcase", color: "text-slate-900" },
     { label: "Tasa adjudicación",   value: `${stats.tasaAdj.toFixed(0)}%`,       sub: `${stats.adj.length}/${stats.decididas} decididas`, icon: "target", color: stats.tasaAdj >= 50 ? "text-emerald-600" : "text-amber-600" },
@@ -1210,6 +1350,7 @@ function Dashboard({ stats, ufClp }) {
 
   return (
     <div className="space-y-8">
+      <SelectorPeriodo fp={fp} total={(data || []).length} />
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {kpis.map((k, i) => (
           <div key={i} className="relative grid-bg bg-white border border-slate-200 shadow-sm rounded p-5 overflow-hidden">
@@ -2009,66 +2150,10 @@ function InformeEjecutivo({ stats: statsGlobal, insights: insightsGlobal, data, 
   // Toggle de moneda — el usuario decide cómo presentar a gerencia
   const [moneda, setMoneda] = useState("UF"); // "UF" | "CLP" | "ambos"
 
-  // ===== Acotar el informe a un período =====
-  // La fecha de referencia es el último contacto de cada propuesta, que es el
-  // dato comercial que maneja el equipo.
-  const hoy = new Date();
-  const [modo, setModo]   = useState("todo");   // todo | anio | semestre | trimestre | mes | personalizado
-  const [anio, setAnio]   = useState(hoy.getFullYear());
-  const [sem, setSem]     = useState(hoy.getMonth() < 6 ? 1 : 2);
-  const [tri, setTri]     = useState(Math.floor(hoy.getMonth() / 3) + 1);
-  const [mes, setMes]     = useState(hoy.getMonth() + 1);
-  const [desde, setDesde] = useState("");
-  const [hasta, setHasta] = useState("");
-
-  // Años presentes en la cartera, para no ofrecer períodos vacíos
-  const aniosDisponibles = useMemo(() => {
-    const set = new Set();
-    (data || []).forEach(r => { const d = parseDate(r.ultimo_contacto); if (d) set.add(d.getFullYear()); });
-    const arr = [...set].sort((a, b) => b - a);
-    return arr.length ? arr : [hoy.getFullYear()];
-  }, [data]);
-
-  const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-  const fmtDia = (d) => d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
-
-  // Rango efectivo [inicio, fin] según el modo elegido
-  const rango = useMemo(() => {
-    if (modo === "todo") return null;
-    if (modo === "personalizado") {
-      if (!desde || !hasta) return null;
-      const i = new Date(desde + "T00:00:00"), f = new Date(hasta + "T23:59:59");
-      return isNaN(i) || isNaN(f) || f < i ? null : { i, f };
-    }
-    if (modo === "anio")      return { i: new Date(anio, 0, 1), f: new Date(anio, 11, 31, 23, 59, 59) };
-    if (modo === "semestre")  { const m0 = sem === 1 ? 0 : 6; return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 6, 0, 23, 59, 59) }; }
-    if (modo === "trimestre") { const m0 = (tri - 1) * 3;     return { i: new Date(anio, m0, 1), f: new Date(anio, m0 + 3, 0, 23, 59, 59) }; }
-    if (modo === "mes")       return { i: new Date(anio, mes - 1, 1), f: new Date(anio, mes, 0, 23, 59, 59) };
-    return null;
-  }, [modo, anio, sem, tri, mes, desde, hasta]);
-
-  const etiquetaPeriodo = useMemo(() => {
-    if (!rango) return "Histórico completo";
-    if (modo === "anio")      return `Año ${anio}`;
-    if (modo === "semestre")  return `${sem}° semestre ${anio}`;
-    if (modo === "trimestre") return `${tri}° trimestre ${anio}`;
-    if (modo === "mes")       return `${MESES_ES[mes - 1]} ${anio}`;
-    return `${fmtDia(rango.i)} al ${fmtDia(rango.f)}`;
-  }, [rango, modo, anio, sem, tri, mes]);
-
-  // Propuestas dentro del período. Las que no tienen fecha quedan fuera y se avisa.
-  const dataPeriodo = useMemo(() => {
-    if (!rango) return data;
-    return (data || []).filter(r => {
-      const d = parseDate(r.ultimo_contacto);
-      return d && d >= rango.i && d <= rango.f;
-    });
-  }, [data, rango]);
-
-  const sinFecha = useMemo(
-    () => (rango ? (data || []).filter(r => !parseDate(r.ultimo_contacto)).length : 0),
-    [data, rango]
-  );
+  // ===== Acotar el informe a un período (misma lógica que el Dashboard) =====
+  const { modo, setModo, anio, setAnio, sem, setSem, tri, setTri, mes, setMes,
+          desde, setDesde, hasta, setHasta, aniosDisponibles, MESES_ES,
+          rango, etiquetaPeriodo, dataPeriodo, sinFecha } = useFiltroPeriodo(data);
 
   // Con período activo recalculamos todo sobre el subconjunto
   const stats    = useMemo(() => (rango ? calcularStats(dataPeriodo) : statsGlobal), [rango, dataPeriodo, statsGlobal]);
@@ -2095,6 +2180,7 @@ function InformeEjecutivo({ stats: statsGlobal, insights: insightsGlobal, data, 
             <option value="semestre">Semestre</option>
             <option value="trimestre">Trimestre</option>
             <option value="mes">Mes</option>
+            <option value="mes30">Último mes (30 días)</option>
             <option value="personalizado">Fechas personalizadas</option>
           </select>
 

@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.6.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.6.1 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.6.0";
+const APP_VERSION = "v6.6.1";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -673,10 +673,7 @@ function LoginScreen() {
       <div className="w-full max-w-md">
         {/* Logo SOIL */}
         <div className="text-center mb-8">
-          <div className="w-20 h-20 mx-auto rounded-lg bg-gradient-to-br from-[#CC1414] to-[#8B0000] flex items-center justify-center shadow-xl shadow-red-900/20 mb-4">
-            <span className="display-font text-white text-5xl font-black">S</span>
-          </div>
-          <h1 className="display-font text-3xl font-black text-[#0D2B5E]">SOIL LIMITADA</h1>
+          <img src="logo.svg" alt="Soil Ltda. · Obras Previas" className="h-20 w-auto mx-auto mb-5" />
           <p className="text-sm text-slate-500 uppercase tracking-widest mt-1">Seguimiento de Propuestas</p>
         </div>
 
@@ -1100,9 +1097,8 @@ function App() {
       <header className="no-print border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded bg-gradient-to-br from-[#CC1414] to-[#8B0000] flex items-center justify-center shadow-lg shadow-red-900/30">
-              <span className="display-font text-white text-2xl font-black">S</span>
-            </div>
+            <img src="logo.svg" alt="Soil Ltda. · Obras Previas" className="h-11 w-auto shrink-0" />
+            <div className="hidden sm:block w-px h-10 bg-slate-200" />
             <div>
               <h1 className="display-font text-3xl font-black tracking-tight text-[#0D2B5E]">SEGUIMIENTO PROPUESTAS</h1>
               <p className="text-xs text-slate-500 uppercase tracking-widest">

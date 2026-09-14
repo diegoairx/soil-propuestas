@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.2 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.7.1";
+const APP_VERSION = "v6.7.2";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6199,7 +6199,8 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
                       </span>
                     </th>
                   ))}
-                  <th className="px-2 py-2 w-16"></th>
+                  <th className="px-2 py-2 w-24"></th>
+                  <th className="px-2 py-2 w-12"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -6215,11 +6216,18 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
                       <span className={"px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold " + (EP_COLOR_ESTADO[h.estado] || "bg-slate-100 text-slate-700")}>{h.estado}</span>
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{h.moneda === "UF" ? "UF " : "$"}{fmtNum(Number(h.total_pagar) || 0, h.moneda === "UF" ? 2 : 0)}</td>
-                    <td className="px-2 py-1.5">
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => onOpen(h)} className="text-[#0D2B5E] hover:underline text-[11px]">Abrir</button>
-                        <button onClick={() => onDelete(h)} className="text-slate-300 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button>
-                      </div>
+                    <td className="px-2 py-1.5 text-right">
+                      <button onClick={() => onOpen(h)}
+                        className="px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold border border-[#0D2B5E] text-[#0D2B5E] rounded hover:bg-[#0D2B5E] hover:text-white transition">
+                        Abrir
+                      </button>
+                    </td>
+                    {/* Eliminar va en columna aparte: es irreversible y no debe quedar pegado a Abrir */}
+                    <td className="pl-5 pr-2 py-1.5 text-right border-l border-slate-100">
+                      <button onClick={() => onDelete(h)} title="Eliminar este estado de pago"
+                        className="p-1.5 rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition">
+                        <Icon name="trash" className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}

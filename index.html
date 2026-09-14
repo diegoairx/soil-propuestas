@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.4 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.5 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.7.4";
+const APP_VERSION = "v6.7.5";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6059,13 +6059,13 @@ const EP_COLOR_ESTADO = {
 
 // Columnas ordenables del historial. El tipo decide cómo se comparan.
 const EP_COLS = [
-  { k: "created_at",  t: "Creado",     tipo: "fecha" },
   { k: "fecha",       t: "Fecha doc.", tipo: "fecha" },
   { k: "proyecto",    t: "Proyecto",   tipo: "texto" },
   { k: "cliente",     t: "Cliente",    tipo: "texto" },
   { k: "periodo",     t: "Período",    tipo: "texto" },
   { k: "estado",      t: "Estado",     tipo: "texto" },
-  { k: "total_pagar", t: "A pagar",    tipo: "num", der: true }
+  { k: "total_pagar", t: "A pagar",    tipo: "num", der: true },
+  { k: "created_at",  t: "Creado",     tipo: "fecha" }
 ];
 
 function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
@@ -6205,7 +6205,6 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
               <tbody className="divide-y divide-slate-100">
                 {ordenado.map(h => (
                   <tr key={h.id} className="hover:bg-slate-50">
-                    <td className="px-2 py-1.5 text-slate-500 font-mono whitespace-nowrap">{fmtF(h.created_at)}</td>
                     <td className="px-2 py-1.5 text-slate-600 font-mono whitespace-nowrap">{fmtF(h.fecha)}</td>
                     <td className="px-2 py-1.5 text-slate-800">{h.proyecto}</td>
                     <td className="px-2 py-1.5 text-slate-600">{h.cliente || "—"}</td>
@@ -6214,6 +6213,7 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
                       <span className={"px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold " + (EP_COLOR_ESTADO[h.estado] || "bg-slate-100 text-slate-700")}>{h.estado}</span>
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{h.moneda === "UF" ? "UF " : "$"}{fmtNum(Number(h.total_pagar) || 0, h.moneda === "UF" ? 2 : 0)}</td>
+                    <td className="px-2 py-1.5 text-slate-500 font-mono whitespace-nowrap">{fmtF(h.created_at)}</td>
                     <td className="px-2 py-1.5 text-right">
                       <button onClick={() => onOpen(h)}
                         className="px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold border border-[#0D2B5E] text-[#0D2B5E] rounded hover:bg-[#0D2B5E] hover:text-white transition">

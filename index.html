@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.3 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.4 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.7.3";
+const APP_VERSION = "v6.7.4";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6059,9 +6059,6 @@ const EP_COLOR_ESTADO = {
 
 // Columnas ordenables del historial. El tipo decide cómo se comparan.
 const EP_COLS = [
-  // El N° se repite entre proyectos (cada obra numera sus propios EP), así que
-  // ordenar por esa columna no dice nada útil: se deja sin control de orden.
-  { k: "numero_ep",   t: "N°",         tipo: "num", sinOrden: true },
   { k: "created_at",  t: "Creado",     tipo: "fecha" },
   { k: "fecha",       t: "Fecha doc.", tipo: "fecha" },
   { k: "proyecto",    t: "Proyecto",   tipo: "texto" },
@@ -6192,15 +6189,13 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
               <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
                 <tr>
                   {EP_COLS.map(c => (
-                    <th key={c.k} onClick={c.sinOrden ? undefined : () => alternar(c.k)}
-                      title={c.sinOrden ? undefined : "Ordenar por " + c.t + (orden.campo === c.k && orden.dir === "asc" ? " (descendente)" : " (ascendente)")}
-                      className={"px-2 py-2 font-semibold whitespace-nowrap " + (c.der ? "text-right " : "text-left ") + (c.sinOrden ? "" : "cursor-pointer select-none hover:text-[#0D2B5E]")}>
+                    <th key={c.k} onClick={() => alternar(c.k)}
+                      title={"Ordenar por " + c.t + (orden.campo === c.k && orden.dir === "asc" ? " (descendente)" : " (ascendente)")}
+                      className={"px-2 py-2 font-semibold cursor-pointer select-none hover:text-[#0D2B5E] whitespace-nowrap " + (c.der ? "text-right" : "text-left")}>
                       {c.t}
-                      {!c.sinOrden && (
-                        <span className={"ml-1 " + (orden.campo === c.k ? "text-[#CC1414]" : "text-slate-300")}>
-                          {orden.campo === c.k ? (orden.dir === "asc" ? "▲" : "▼") : "⇅"}
-                        </span>
-                      )}
+                      <span className={"ml-1 " + (orden.campo === c.k ? "text-[#CC1414]" : "text-slate-300")}>
+                        {orden.campo === c.k ? (orden.dir === "asc" ? "▲" : "▼") : "⇅"}
+                      </span>
                     </th>
                   ))}
                   <th className="px-2 py-2 w-24"></th>
@@ -6210,7 +6205,6 @@ function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
               <tbody className="divide-y divide-slate-100">
                 {ordenado.map(h => (
                   <tr key={h.id} className="hover:bg-slate-50">
-                    <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414] whitespace-nowrap">{h.numero_ep}{h.revision && h.revision !== "0" ? " R" + h.revision : ""}</td>
                     <td className="px-2 py-1.5 text-slate-500 font-mono whitespace-nowrap">{fmtF(h.created_at)}</td>
                     <td className="px-2 py-1.5 text-slate-600 font-mono whitespace-nowrap">{fmtF(h.fecha)}</td>
                     <td className="px-2 py-1.5 text-slate-800">{h.proyecto}</td>

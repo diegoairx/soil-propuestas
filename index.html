@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.6.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.7.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.6.1";
+const APP_VERSION = "v6.7.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -5201,7 +5201,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
   const cargarHistorial = async () => {
     if (!supaOn) return;
     const { data, error } = await db.from("estados_pago")
-      .select("id,numero_ep,revision,proyecto,cliente,fecha,periodo,moneda,estado,total_contrato,avance_periodo,total_pagar,updated_at")
+      .select("id,numero_ep,revision,proyecto,cliente,fecha,periodo,moneda,estado,total_contrato,avance_periodo,total_pagar,created_at,updated_at")
       .order("updated_at", { ascending: false });
     if (!error) setHistorial(data || []);
   };
@@ -6034,52 +6034,161 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
 
       {/* Modal: historial */}
       {showHist && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded max-w-4xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white">
-              <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Historial de estados de pago</h3>
-              <button onClick={() => setShowHist(false)} className="p-2 hover:bg-slate-100 rounded"><Icon name="x" className="w-5 h-5" /></button>
-            </div>
-            <div className="p-4">
-              {historial.length === 0 ? (
-                <div className="text-center py-8 text-sm text-slate-400">Aún no has guardado estados de pago</div>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
-                    <tr>
-                      <th className="px-2 py-2 text-left font-semibold">N°</th>
-                      <th className="px-2 py-2 text-left font-semibold">Proyecto</th>
-                      <th className="px-2 py-2 text-left font-semibold">Cliente</th>
-                      <th className="px-2 py-2 text-left font-semibold">Período</th>
-                      <th className="px-2 py-2 text-left font-semibold">Estado</th>
-                      <th className="px-2 py-2 text-right font-semibold">A pagar</th>
-                      <th className="px-2 py-2 w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {historial.map(h => (
-                      <tr key={h.id} className="hover:bg-slate-50">
-                        <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414]">{h.numero_ep}{h.revision && h.revision !== "0" ? " R" + h.revision : ""}</td>
-                        <td className="px-2 py-1.5 text-slate-800">{h.proyecto}</td>
-                        <td className="px-2 py-1.5 text-slate-600">{h.cliente || "—"}</td>
-                        <td className="px-2 py-1.5 text-slate-600">{h.periodo || "—"}</td>
-                        <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-[10px] uppercase bg-slate-100 text-slate-700">{h.estado}</span></td>
-                        <td className="px-2 py-1.5 text-right font-mono">{h.moneda === "UF" ? "UF " : "$"}{fmtNum(Number(h.total_pagar) || 0, h.moneda === "UF" ? 2 : 0)}</td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex gap-1 justify-end">
-                            <button onClick={() => abrirDelHistorial(h)} className="text-[#0D2B5E] hover:underline text-[11px]">Abrir</button>
-                            <button onClick={() => eliminarDelHistorial(h)} className="text-slate-300 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+        <HistorialEPModal
+          historial={historial}
+          onClose={() => setShowHist(false)}
+          onOpen={abrirDelHistorial}
+          onDelete={eliminarDelHistorial}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Historial de estados de pago — con fecha de creación y filtros
+// ============================================================================
+const EP_COLOR_ESTADO = {
+  "Borrador":  "bg-slate-100 text-slate-700",
+  "Emitido":   "bg-sky-100 text-sky-800",
+  "Aprobado":  "bg-amber-100 text-amber-800",
+  "Facturado": "bg-emerald-100 text-emerald-800",
+  "Pagado":    "bg-emerald-600 text-white",
+  "Anulado":   "bg-rose-100 text-rose-700"
+};
+
+function HistorialEPModal({ historial, onClose, onOpen, onDelete }) {
+  const [fProy, setFProy] = useState("");
+  const [fCli,  setFCli]  = useState("");
+  const [fEst,  setFEst]  = useState("");
+  const [campoFecha, setCampoFecha] = useState("fecha");   // fecha | created_at
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+
+  const lista = historial || [];
+  const unicos = (campo) => [...new Set(lista.map(h => String(h[campo] || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  const proyectos = useMemo(() => unicos("proyecto"), [historial]);
+  const clientes  = useMemo(() => unicos("cliente"),  [historial]);
+  const estados   = useMemo(() => unicos("estado"),   [historial]);
+
+  // Se compara a nivel de día para que el rango incluya ambos extremos
+  const aDia = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+  const fmtF = (v) => { const d = aDia(v); return d ? d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—"; };
+
+  const filtrado = useMemo(() => {
+    const di = desde ? aDia(desde + "T12:00:00") : null;
+    const hf = hasta ? aDia(hasta + "T12:00:00") : null;
+    return lista.filter(h => {
+      if (fProy && h.proyecto !== fProy) return false;
+      if (fCli  && h.cliente  !== fCli)  return false;
+      if (fEst  && h.estado   !== fEst)  return false;
+      if (di || hf) {
+        const d = aDia(h[campoFecha]);
+        if (!d) return false;
+        if (di && d < di) return false;
+        if (hf && d > hf) return false;
+      }
+      return true;
+    });
+  }, [historial, fProy, fCli, fEst, campoFecha, desde, hasta]);
+
+  const hayFiltro = !!(fProy || fCli || fEst || desde || hasta);
+  const limpiar = () => { setFProy(""); setFCli(""); setFEst(""); setDesde(""); setHasta(""); };
+
+  const totCLP = filtrado.filter(h => h.moneda !== "UF").reduce((a, h) => a + (Number(h.total_pagar) || 0), 0);
+  const totUF  = filtrado.filter(h => h.moneda === "UF").reduce((a, h) => a + (Number(h.total_pagar) || 0), 0);
+  const cls = "text-xs border border-slate-300 rounded px-2 py-1.5 bg-white text-slate-800 focus:outline-none focus:border-[#0D2B5E]";
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded max-w-6xl w-full max-h-[88vh] flex flex-col shadow-2xl">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 className="display-font text-2xl font-bold uppercase text-[#0D2B5E]">Historial de estados de pago</h3>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {filtrado.length} de {lista.length} registros
+              {filtrado.length > 0 && totCLP > 0 && <span className="ml-2 text-[#0D2B5E] font-semibold">· $ {fmtNum(totCLP, 0)}</span>}
+              {filtrado.length > 0 && totUF  > 0 && <span className="ml-2 text-[#0D2B5E] font-semibold">· UF {fmtNum(totUF, 2)}</span>}
             </div>
           </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded"><Icon name="x" className="w-5 h-5" /></button>
         </div>
-      )}
+
+        {lista.length > 0 && (
+          <div className="px-6 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2 flex-wrap">
+            <select value={fProy} onChange={e => setFProy(e.target.value)} className={cls} style={{ maxWidth: 220 }}>
+              <option value="">Todos los proyectos</option>
+              {proyectos.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={fCli} onChange={e => setFCli(e.target.value)} className={cls} style={{ maxWidth: 220 }}>
+              <option value="">Todos los clientes</option>
+              {clientes.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={fEst} onChange={e => setFEst(e.target.value)} className={cls}>
+              <option value="">Todos los estados</option>
+              {estados.map(e2 => <option key={e2} value={e2}>{e2}</option>)}
+            </select>
+            <span className="w-px h-6 bg-slate-300 mx-1" />
+            <select value={campoFecha} onChange={e => setCampoFecha(e.target.value)} className={cls}>
+              <option value="fecha">Fecha del documento</option>
+              <option value="created_at">Fecha de creación</option>
+            </select>
+            <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className={cls} title="Desde" />
+            <span className="text-xs text-slate-500">al</span>
+            <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className={cls} title="Hasta" />
+            {hayFiltro && (
+              <button onClick={limpiar} className="text-xs text-[#CC1414] hover:underline font-semibold ml-1">Limpiar</button>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto p-4">
+          {lista.length === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">Aún no has guardado estados de pago</div>
+          ) : filtrado.length === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">Ningún estado de pago calza con los filtros</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
+                <tr>
+                  <th className="px-2 py-2 text-left font-semibold">N°</th>
+                  <th className="px-2 py-2 text-left font-semibold">Creado</th>
+                  <th className="px-2 py-2 text-left font-semibold">Fecha doc.</th>
+                  <th className="px-2 py-2 text-left font-semibold">Proyecto</th>
+                  <th className="px-2 py-2 text-left font-semibold">Cliente</th>
+                  <th className="px-2 py-2 text-left font-semibold">Período</th>
+                  <th className="px-2 py-2 text-left font-semibold">Estado</th>
+                  <th className="px-2 py-2 text-right font-semibold">A pagar</th>
+                  <th className="px-2 py-2 w-16"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtrado.map(h => (
+                  <tr key={h.id} className="hover:bg-slate-50">
+                    <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414] whitespace-nowrap">{h.numero_ep}{h.revision && h.revision !== "0" ? " R" + h.revision : ""}</td>
+                    <td className="px-2 py-1.5 text-slate-500 font-mono whitespace-nowrap">{fmtF(h.created_at)}</td>
+                    <td className="px-2 py-1.5 text-slate-600 font-mono whitespace-nowrap">{fmtF(h.fecha)}</td>
+                    <td className="px-2 py-1.5 text-slate-800">{h.proyecto}</td>
+                    <td className="px-2 py-1.5 text-slate-600">{h.cliente || "—"}</td>
+                    <td className="px-2 py-1.5 text-slate-600">{h.periodo || "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={"px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold " + (EP_COLOR_ESTADO[h.estado] || "bg-slate-100 text-slate-700")}>{h.estado}</span>
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{h.moneda === "UF" ? "UF " : "$"}{fmtNum(Number(h.total_pagar) || 0, h.moneda === "UF" ? 2 : 0)}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => onOpen(h)} className="text-[#0D2B5E] hover:underline text-[11px]">Abrir</button>
+                        <button onClick={() => onDelete(h)} className="text-slate-300 hover:text-rose-600"><Icon name="trash" className="w-3 h-3" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

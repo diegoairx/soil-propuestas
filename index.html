@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.8.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.8.1 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.8.0";
+const APP_VERSION = "v6.8.1";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -3236,6 +3236,27 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
     flash("Cotización cargada");
   };
 
+  // Duplicar: cotización nueva reutilizando el formato de una existente.
+  // El número y el vínculo con la propuesta no se arrastran: son propios de
+  // cada oferta y copiarlos provocaría duplicados y sincronizaciones cruzadas.
+  const duplicarDelHistorial = (item) => {
+    const base = (item && item.data && item.data.cliente) ? item.data : item;
+    if (!base || !base.cliente) { flash("No se pudo duplicar", "err"); return; }
+    const hoy = new Date();
+    setCot({
+      ...COTIZACION_VACIA(),
+      ...base,
+      numero: "S-[NÚMERO]/" + String(hoy.getMonth() + 1).padStart(2, "0") + String(hoy.getFullYear()).slice(-2),
+      fecha: hoy.toISOString().slice(0, 10),
+      fecha_larga: hoy.getDate() + " de " + meses_es[hoy.getMonth()] + " de " + hoy.getFullYear(),
+      estado_oferta: "Borrador",
+      propuesta_id: null
+    });
+    setCotId(null);        // se guardará como registro nuevo, no pisa la original
+    setShowHistorial(false);
+    flash("Copia lista. Asigna el número de cotización y revisa el cliente antes de guardar.");
+  };
+
   const eliminarDelHistorial = async (item) => {
     if (!confirm("¿Eliminar definitivamente esta cotización? Acción quedará en audit_log.")) return;
     if (supabaseOn && item.id) {
@@ -3892,6 +3913,7 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
           supabaseOn={supabaseOn}
           onClose={() => setShowHistorial(false)}
           onLoad={cargarDelHistorial}
+          onDuplicate={duplicarDelHistorial}
           onDelete={eliminarDelHistorial}
         />
       )}
@@ -4641,7 +4663,7 @@ function CatalogoModal({ onClose, onAdd, onAddVacia }) {
 }
 
 // ===== Modal: Historial =====
-function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDelete }) {
+function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDuplicate, onDelete }) {
   const [q, setQ] = useState("");
   const filtrado = useMemo(() => {
     if (!q) return historial;
@@ -4657,7 +4679,7 @@ function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDe
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+      <div className="bg-white rounded shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <div className="display-font text-xl font-black text-[#0D2B5E]">HISTORIAL DE COTIZACIONES</div>
@@ -4696,9 +4718,16 @@ function HistorialModal({ historial, cargando, supabaseOn, onClose, onLoad, onDe
                         <div className="text-xs text-slate-500 mt-0.5">{proy} - {npart} partidas - <strong className="text-[#0D2B5E]">{fmtNum(totalUf, 2)} UF</strong></div>
                         <div className="text-[10px] text-slate-400 mt-0.5">Actualizada: {fechaTxt}</div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <button onClick={() => onLoad(h)} className="px-3 py-1.5 text-xs uppercase tracking-wider font-semibold bg-[#0D2B5E] text-white rounded hover:bg-blue-900">Cargar</button>
-                        <button onClick={() => onDelete(h)} className="p-2 text-slate-400 hover:text-rose-600"><Icon name="trash" className="w-4 h-4" /></button>
+                        <button onClick={() => onDuplicate(h)}
+                          title="Crear una cotización nueva reutilizando este formato"
+                          className="px-2.5 py-1.5 text-xs uppercase tracking-wider font-semibold border border-slate-300 text-slate-600 rounded hover:border-[#0D2B5E] hover:text-[#0D2B5E] transition inline-flex items-center gap-1">
+                          <Icon name="copy" className="w-3.5 h-3.5" /> Duplicar
+                        </button>
+                        <span className="w-px h-6 bg-slate-200 ml-1" />
+                        <button onClick={() => onDelete(h)} title="Eliminar esta cotización"
+                          className="p-2 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"><Icon name="trash" className="w-4 h-4" /></button>
                       </div>
                     </div>
                   </div>

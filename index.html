@@ -68,7 +68,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.9.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.9.4 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +234,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.9.0";
+const APP_VERSION = "v6.9.4";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6401,6 +6401,19 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   const flash = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
   const calc = useMemo(() => cmCalcular(cm), [cm]);
 
+  // Logo como data URI: así viaja incrustado en el Word y en el PDF. Una ruta
+  // relativa se vería bien en pantalla pero se rompería al abrir el archivo
+  // descargado en otro computador.
+  const [logoUri, setLogoUri] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await cargarLogo();
+        if (t) setLogoUri("data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(t))));
+      } catch (e) {}
+    })();
+  }, []);
+
   useEffect(() => { try { localStorage.setItem(CM_STORAGE, JSON.stringify(cm)); } catch (e) {} }, [cm]);
   useEffect(() => {
     try { cmId ? localStorage.setItem(CM_STORAGE + "_id", cmId) : localStorage.removeItem(CM_STORAGE + "_id"); } catch (e) {}
@@ -6685,8 +6698,23 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
           <div className="bg-white border border-slate-200 shadow-lg rounded overflow-hidden">
             <div className="no-print px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Vista previa del documento</div>
             <div ref={printRef} className="p-8 text-[11px] leading-relaxed text-slate-800" style={{ fontFamily: "Calibri, Inter, sans-serif" }}>
-              <div style={{ textAlign: "right", marginBottom: 2 }}>{cm.ciudad}, {cmFechaLarga(cm.fecha)}</div>
-              <div style={{ textAlign: "right", fontWeight: 700, marginBottom: 18 }}>{cm.numero}</div>
+              {/* Membrete: tabla en vez de flexbox, porque Word no interpreta flex */}
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 6 }}>
+                <tbody>
+                  <tr>
+                    <td style={{ border: "none", padding: 0, verticalAlign: "top" }}>
+                      {logoUri
+                        ? <img src={logoUri} alt="Soil Ltda. · Obras Previas" style={{ height: 46, width: "auto" }} />
+                        : <div style={{ fontWeight: 900, color: "#CC1414", fontSize: 19, letterSpacing: "-0.02em" }}>SOIL LTDA.</div>}
+                    </td>
+                    <td style={{ border: "none", padding: 0, textAlign: "right", verticalAlign: "top" }}>
+                      <div>{cm.ciudad}, {cmFechaLarga(cm.fecha)}</div>
+                      <div style={{ fontWeight: 700 }}>{cm.numero}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ borderTop: "2px solid #CC1414", marginBottom: 18 }} />
 
               <div>Señor(a)</div>
               <div style={{ fontWeight: 700 }}>{cm.destinatario || "—"}</div>
@@ -6764,6 +6792,11 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
               <div style={{ marginTop: 40, fontWeight: 700 }}>{cm.firmante}</div>
               <div>{cm.cargo_firmante}</div>
               <div style={{ fontSize: 10 }}>{cm.razon_social}</div>
+
+              {/* Mismo pie del módulo de cotizaciones */}
+              <div style={{ marginTop: 20, paddingTop: 8, borderTop: "2px solid #CC1414", fontSize: 9, color: "#64748b", textAlign: "center" }}>
+                Sociedad Constructora e Inversiones Soil Ltda.  |  Ramón Carrasco #231 Casa N°93, Lomas de Antilhue, Concepción  |  constructora@soilconstructora.cl  |  www.soilconstructora.cl
+              </div>
             </div>
           </div>
         </div>

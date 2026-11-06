@@ -52,6 +52,19 @@
   .loader-spin { width:48px; height:48px; border:3px solid #e2e8f0; border-top-color:#CC1414; border-radius:50%; animation:spin 1s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
 
+  /* ---- Pantallas medianas (iPad) ----
+     Los controles de formulario traen un ancho intrínseco propio —sobre todo
+     input[type=date] en Safari y los select con opciones largas—. Las celdas
+     de una grilla, por defecto, no se encogen por debajo del contenido, así
+     que ese ancho empujaba el campo fuera de su recuadro, encima de la
+     columna vecina, y desplazaba la página entera hacia la derecha. */
+  .grid > * { min-width: 0; }
+  input, select, textarea { max-width: 100%; min-width: 0; }
+  input[type="date"] { -webkit-appearance: none; appearance: none; width: 100%; }
+  select { text-overflow: ellipsis; }
+  /* Los íconos no deben encogerse al apretarse el espacio */
+  button > svg, a > svg, label > svg { flex-shrink: 0; }
+
   @media print {
     body { background: white !important; }
     .no-print { display: none !important; }
@@ -68,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.12.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.13.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -234,7 +247,7 @@ function calcularInsights(data, stats) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.12.1";
+const APP_VERSION = "v6.13.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -3443,7 +3456,7 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
 
           {/* 1) Encabezado */}
           <Seccion icon="fileText" title="Encabezado de la Cotización" defaultOpen={true}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
               <CotField label="N° Cotización" value={cot.numero}  onChange={v => setCot(c => ({ ...c, numero: v }))} />
               <CotField label="Fecha"         value={cot.fecha}   onChange={v => setCot(c => ({ ...c, fecha: v, fecha_larga: v ? new Date(v + "T00:00").getDate() + " de " + meses_es[new Date(v + "T00:00").getMonth()] + " de " + new Date(v + "T00:00").getFullYear() : c.fecha_larga }))} type="date" />
               <CotField label="Ciudad"        value={cot.ciudad}  onChange={v => setCot(c => ({ ...c, ciudad: v }))} />
@@ -5982,7 +5995,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
         {/* Editor */}
         <div className="xl:col-span-2 space-y-4">
           <Seccion icon="fileText" title="Datos del Estado de Pago" defaultOpen={true}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
               <F label="N° Estado de Pago">
                 <input type="number" min="1" value={ep.numero_ep} onChange={e => setEp(x => ({ ...x, numero_ep: parseInt(e.target.value) || 1 }))} className={inp + " font-mono text-right"} />
               </F>
@@ -6014,7 +6027,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
                 <input value={ep.referencia} onChange={e => setEp(x => ({ ...x, referencia: e.target.value }))} className={inp} />
               </F>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <F label="Período">
                 <input value={ep.periodo} onChange={e => setEp(x => ({ ...x, periodo: e.target.value }))} placeholder="Agosto 2026" className={inp} />
               </F>
@@ -6112,7 +6125,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
           </Seccion>
 
           <Seccion icon="dollar" title="Descuentos y firmas">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
               <F label="Retención %">
                 <input type="number" step="0.01" value={(ep.retencion_pct * 100).toFixed(2)} onChange={e => setEp(x => ({ ...x, retencion_pct: (parseFloat(e.target.value) || 0) / 100 }))} className={inp + " font-mono text-right"} />
               </F>
@@ -6129,7 +6142,7 @@ function EstadosPago({ ufClp, directorioClientes = [], propuestas = [] }) {
             <F label="Glosa de otros descuentos" className="mb-3">
               <input value={ep.otros_glosa} onChange={e => setEp(x => ({ ...x, otros_glosa: e.target.value }))} className={inp} />
             </F>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
               <F label="Firma Soil"><input value={ep.firma_soil} onChange={e => setEp(x => ({ ...x, firma_soil: e.target.value }))} className={inp} /></F>
               <F label="Cargo"><input value={ep.cargo_soil} onChange={e => setEp(x => ({ ...x, cargo_soil: e.target.value }))} className={inp} /></F>
               <F label="Firma mandante"><input value={ep.firma_cliente} onChange={e => setEp(x => ({ ...x, firma_cliente: e.target.value }))} className={inp} /></F>

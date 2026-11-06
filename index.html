@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.13.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.14.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -178,76 +178,10 @@ function calcularStats(data) {
     return { total, adj, rech, pipeline, standby, decididas, tasaAdj, montoAdj, montoPipe, montoStandby, montoRech, ticketAdj, porStatus, clientes, servicios, serviciosValorizados, tendencia, concentracion };
 }
 
-function calcularInsights(data, stats) {
-    const items = [];
-    const recurrentes = stats.clientes.filter(c => c.n >= 3);
-    const estrella = recurrentes.filter(c => c.tasa !== null && c.tasa >= 70).sort((a,b) => b.adj - a.adj)[0];
-    if (estrella) items.push({
-      tipo: "ganador", titulo: `${estrella.cliente} es tu cliente ancla`,
-      detalle: `${estrella.adj}/${estrella.adj+estrella.rech} adjudicados (${estrella.tasa.toFixed(0)}%) — ${fmtUF(estrella.montoAdj)} facturados.`,
-      accion: "Consolidar cuenta clave: agendar reunión trimestral, ofrecer paquete preferente, mantener contacto activo aunque no haya licitación abierta."
-    });
-    const riesgo = recurrentes.filter(c => c.tasa !== null && c.tasa <= 40 && (c.adj + c.rech) >= 2).sort((a,b) => a.tasa - b.tasa)[0];
-    if (riesgo) items.push({
-      tipo: "riesgo", titulo: `${riesgo.cliente}: tasa de éxito baja`,
-      detalle: `Solo ${riesgo.adj}/${riesgo.adj+riesgo.rech} adjudicados (${riesgo.tasa.toFixed(0)}%). Has invertido tiempo en ${riesgo.n} estudios.`,
-      accion: "Revisar postmortems: ¿precio, plazo o relación? Pedir feedback explícito al contacto. Antes de cotizar el próximo, calificar si vale la pena el esfuerzo."
-    });
-    const servGanador = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa >= 70).sort((a,b) => b.tasa - a.tasa)[0];
-    if (servGanador) items.push({
-      tipo: "ganador", titulo: `"${servGanador.servicio}" es tu servicio más competitivo`,
-      detalle: `${servGanador.adj}/${servGanador.adj+servGanador.rech} adjudicados (${servGanador.tasa.toFixed(0)}%). Tu propuesta de valor aquí es fuerte.`,
-      accion: "Apalancar: priorizar este servicio en marketing (LinkedIn, sitio web), buscar proyectos donde sea el componente principal, generar caso de éxito documentado."
-    });
-    const servProblema = stats.servicios.filter(s => s.total >= 3 && s.tasa !== null && s.tasa <= 30).sort((a,b) => a.tasa - b.tasa)[0];
-    if (servProblema) items.push({
-      tipo: "riesgo", titulo: `"${servProblema.servicio}" tiene baja conversión`,
-      detalle: `Apenas ${servProblema.adj}/${servProblema.adj+servProblema.rech} adjudicados (${servProblema.tasa.toFixed(0)}%) sobre ${servProblema.total} cotizaciones.`,
-      accion: "Diagnosticar: ¿precio fuera de mercado, mucha competencia, o no es tu sweet spot? Considerar subcontratar, asociar o dejar de cotizarlo standalone."
-    });
-    if (stats.montoPipe > 0) items.push({
-      tipo: "oportunidad", titulo: `Pipeline activo: ${fmtUF(stats.montoPipe)} en juego`,
-      detalle: `${stats.pipeline.length} propuestas entre cotización enviada y negociación. Aplicando tu tasa histórica de ${stats.tasaAdj.toFixed(0)}%, esperarías cerrar ~${fmtUF(stats.montoPipe * stats.tasaAdj/100)}.`,
-      accion: "Ejecutar follow-up sistemático esta semana sobre cada propuesta del pipeline. La probabilidad de cierre cae rápido tras 30 días sin contacto."
-    });
-    const hoy = new Date();
-    const estancadas = data.filter(r => {
-      if (r.status !== "Cotización enviada") return false;
-      const d = parseDate(r.ultimo_contacto);
-      if (!d) return true;
-      return (hoy - d) / (1000*60*60*24) > 60;
-    });
-    if (estancadas.length > 0) items.push({
-      tipo: "alerta", titulo: `${estancadas.length} cotización(es) sin movimiento +60 días`,
-      detalle: `Suman ${fmtUF(estancadas.reduce((s,r) => s+(r.monto||0), 0))} en proyectos: ${estancadas.slice(0,3).map(e => e.proyecto).join(", ")}${estancadas.length > 3 ? "..." : ""}`,
-      accion: "Llamar (no email) esta semana. Si no contestan en 2 intentos, marcar perdido y reciclar pipeline. La data sucia distorsiona los KPIs."
-    });
-    if (stats.concentracion > 50) {
-      items.push({
-        tipo: "riesgo", titulo: `Concentración alta de cartera: ${stats.concentracion.toFixed(0)}% en top 3 clientes`,
-        detalle: "Si uno se enfría, el impacto es proporcional. Es un riesgo de continuidad operativa.",
-        accion: "Diversificar prospección: definir 5-10 cuentas objetivo nuevas para Q próximo y trabajar outbound dedicado."
-      });
-    } else if (stats.concentracion > 0) {
-      items.push({
-        tipo: "info", titulo: `Concentración cartera: ${stats.concentracion.toFixed(0)}% en top 3`,
-        detalle: "Diversificación razonable. Sigue construyendo base ancha de clientes recurrentes.",
-        accion: "Mantener ratio. Ningún cliente debería superar el 35% de los estudios anuales."
-      });
-    }
-    const sinContacto = data.filter(r => !r.email && !r.telefono && r.status !== "Servicios menores");
-    if (sinContacto.length > 0) items.push({
-      tipo: "alerta", titulo: `${sinContacto.length} contacto(s) sin datos de contacto registrados`,
-      detalle: "Imposible hacer follow-up automatizado o reactivar cuentas frías sin email/teléfono.",
-      accion: "Higienizar la base: bloquear 30 minutos esta semana para completar campos faltantes vía LinkedIn o búsqueda directa."
-    });
-    return items;
-}
-
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.13.0";
+const APP_VERSION = "v6.14.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -891,9 +825,6 @@ function App() {
   // CÁLCULOS
   const stats = useMemo(() => calcularStats(data), [data]);
 
-  // INSIGHTS
-  const insights = useMemo(() => calcularInsights(data, stats), [data, stats]);
-
   const filtered = useMemo(() => {
     let r = data.filter(d => {
       if (filterStatus !== "all" && d.status !== filterStatus) return false;
@@ -1035,8 +966,6 @@ function App() {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  const printReport = () => { setTab("informe"); setTimeout(() => window.print(), 400); };
-
   // Importar CSV: en modo Supabase escribe a la BD, en offline escribe local
   const applyImport = async (newRows, mode) => {
     if (isOffline) {
@@ -1140,9 +1069,6 @@ function App() {
             <button onClick={() => setShowImport(true)} className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition flex items-center gap-2 border border-slate-300" title="Importar propuestas desde un CSV — archivo local o URL">
               <Icon name="upload" /> Importar
             </button>
-            <button onClick={printReport} className="px-4 py-2 text-sm bg-[#CC1414] hover:bg-[#a01010] rounded transition flex items-center gap-2 font-semibold">
-              <Icon name="printer" /> Informe Gerencia
-            </button>
             {!isOffline && session?.user && (
               <div className="flex items-center gap-2 ml-2 pl-3 border-l border-slate-300">
                 <div className="text-xs text-right">
@@ -1161,7 +1087,6 @@ function App() {
         <nav className="max-w-[1600px] mx-auto px-6 flex gap-1 overflow-x-auto">
           {[
             { id: "dashboard",   label: "Dashboard",   icon: "chart" },
-            { id: "informe",     label: "Informe",     icon: "file" },
             { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
             { id: "cotmenor",    label: "Cot. Menor",  icon: "copy" },
             { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
@@ -1196,7 +1121,6 @@ function App() {
         {tab === "cotizaciones" && <Cotizaciones ufClp={ufClp} clientesUnicos={clientesUnicos} directorioClientes={directorioClientes} propuestas={data} />}
         {tab === "cotmenor" && <CotizacionMenor ufClp={ufClp} directorioClientes={directorioClientes} />}
         {tab === "estadospago" && <EstadosPago ufClp={ufClp} directorioClientes={directorioClientes} propuestas={data} />}
-        {tab === "informe" && <InformeEjecutivo stats={stats} insights={insights} data={data} ufClp={ufClp} />}
       </main>
 
       {showImport && <ImportarCSVModal onClose={() => setShowImport(false)} onApply={applyImport} currentCount={data.length} />}
@@ -1209,10 +1133,7 @@ function App() {
 }
 
 // ============================================================================
-// DASHBOARD
-// ============================================================================
-// ============================================================================
-// FILTRO DE PERÍODO — lógica compartida por Dashboard e Informe
+// DASHBOARD — con filtro de período
 // La fecha de referencia es el último contacto de cada propuesta.
 // ============================================================================
 function useFiltroPeriodo(data) {
@@ -2161,297 +2082,6 @@ function NuevaPropuestaModal({ onClose, onSave, directorio = [] }) {
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded text-slate-700"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <EditForm draft={draft} setDraft={setDraft} onSave={() => onSave(draft)} onCancel={onClose} directorio={directorio} />
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// INFORME EJECUTIVO
-// ============================================================================
-function InformeEjecutivo({ stats: statsGlobal, insights: insightsGlobal, data, ufClp }) {
-  const fechaInforme = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
-  const tagMap = { ganador: "Oportunidad consolidada", riesgo: "Riesgo identificado", oportunidad: "Oportunidad", alerta: "Alerta operativa", info: "Observación" };
-
-  // Toggle de moneda — el usuario decide cómo presentar a gerencia
-  const [moneda, setMoneda] = useState("UF"); // "UF" | "CLP" | "ambos"
-
-  // ===== Acotar el informe a un período (misma lógica que el Dashboard) =====
-  const { modo, setModo, anio, setAnio, sem, setSem, tri, setTri, mes, setMes,
-          desde, setDesde, hasta, setHasta, aniosDisponibles, MESES_ES,
-          rango, etiquetaPeriodo, dataPeriodo, sinFecha } = useFiltroPeriodo(data);
-
-  // Con período activo recalculamos todo sobre el subconjunto
-  const stats    = useMemo(() => (rango ? calcularStats(dataPeriodo) : statsGlobal), [rango, dataPeriodo, statsGlobal]);
-  const insights = useMemo(() => (rango ? calcularInsights(dataPeriodo, stats) : insightsGlobal), [rango, dataPeriodo, stats, insightsGlobal]);
-
-  const pipelineProyectado = stats.montoPipe * stats.tasaAdj / 100;
-  const selCls = "text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0D2B5E]";
-
-  // Helper que respeta la elección
-  const fmtMonto = (uf) => {
-    if (moneda === "UF") return fmtUFLargo(uf);
-    if (moneda === "CLP") return fmtCLP(ufToClp(uf, ufClp));
-    return `${fmtUFLargo(uf)} (${fmtCLP(ufToClp(uf, ufClp))})`;
-  };
-
-  return (
-    <div data-printable className="bg-white text-slate-900 rounded shadow-2xl">
-      <div className="no-print bg-slate-100 p-4 border-b border-slate-300 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-600 uppercase tracking-wider font-semibold">Período:</span>
-          <select value={modo} onChange={e => setModo(e.target.value)} className={selCls}>
-            <option value="todo">Histórico completo</option>
-            <option value="anio">Año</option>
-            <option value="semestre">Semestre</option>
-            <option value="trimestre">Trimestre</option>
-            <option value="mes">Mes</option>
-            <option value="mes30">Último mes (30 días)</option>
-            <option value="personalizado">Fechas personalizadas</option>
-          </select>
-
-          {["anio", "semestre", "trimestre", "mes"].includes(modo) && (
-            <select value={anio} onChange={e => setAnio(parseInt(e.target.value))} className={selCls}>
-              {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
-          {modo === "semestre" && (
-            <select value={sem} onChange={e => setSem(parseInt(e.target.value))} className={selCls}>
-              <option value={1}>1° semestre (ene–jun)</option>
-              <option value={2}>2° semestre (jul–dic)</option>
-            </select>
-          )}
-          {modo === "trimestre" && (
-            <select value={tri} onChange={e => setTri(parseInt(e.target.value))} className={selCls}>
-              <option value={1}>1° trimestre (ene–mar)</option>
-              <option value={2}>2° trimestre (abr–jun)</option>
-              <option value={3}>3° trimestre (jul–sep)</option>
-              <option value={4}>4° trimestre (oct–dic)</option>
-            </select>
-          )}
-          {modo === "mes" && (
-            <select value={mes} onChange={e => setMes(parseInt(e.target.value))} className={selCls}>
-              {MESES_ES.map((m, i) => <option key={i} value={i + 1}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
-            </select>
-          )}
-          {modo === "personalizado" && (
-            <div className="flex items-center gap-1">
-              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className={selCls} />
-              <span className="text-xs text-slate-500">al</span>
-              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className={selCls} />
-            </div>
-          )}
-
-          <span className="text-xs text-slate-500 ml-1">
-            {dataPeriodo.length} de {(data || []).length} propuestas
-            {sinFecha > 0 && <span className="text-amber-600" title="Propuestas sin fecha de último contacto: quedan fuera de cualquier período"> · {sinFecha} sin fecha</span>}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-600 uppercase tracking-wider font-semibold">Mostrar montos en:</span>
-            <div className="flex border border-slate-300 rounded overflow-hidden">
-              {["UF", "CLP", "ambos"].map(opt => (
-                <button key={opt} onClick={() => setMoneda(opt)}
-                  className={`px-3 py-1.5 text-xs font-semibold transition ${moneda === opt ? "bg-[#CC1414] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-            <span className="text-slate-500 ml-2">UF ref: ${ufClp.toLocaleString("es-CL")} CLP</span>
-          </div>
-          <button onClick={() => window.print()} className="px-4 py-2 bg-[#CC1414] text-white rounded text-sm font-semibold flex items-center gap-2">
-            <Icon name="printer" /> Imprimir / Guardar PDF
-          </button>
-        </div>
-      </div>
-
-      <div className="p-12 max-w-4xl mx-auto">
-        <div className="border-b-4 border-[#CC1414] pb-6 mb-8">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-[0.3em] text-slate-500 mb-2">Soil Limitada · Reporte interno</div>
-              <h1 className="display-font text-5xl font-black uppercase text-[#0D2B5E]">Informe ejecutivo</h1>
-              <h2 className="display-font text-2xl font-bold uppercase text-slate-700 mt-1">Pipeline comercial</h2>
-              <div className="mt-2 inline-block border-l-4 border-[#CC1414] pl-3">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Período del informe</div>
-                <div className="text-base font-bold text-[#0D2B5E]">{etiquetaPeriodo}</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="w-16 h-16 rounded bg-[#CC1414] flex items-center justify-center mb-2 ml-auto">
-                <span className="display-font text-white text-3xl font-black">S</span>
-              </div>
-              <div className="text-xs text-slate-500">Emitido el {fechaInforme}</div>
-              <div className="text-xs text-slate-500 mt-1">{stats.total} propuestas</div>
-            </div>
-          </div>
-        </div>
-
-        <section className="mb-10">
-          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Resumen ejecutivo</h3>
-          <p className="text-slate-700 leading-relaxed mb-3">
-            La cartera de propuestas registrada en seguimiento contiene <strong>{stats.total} estudios comerciales</strong>,
-            con una tasa de adjudicación histórica del <strong className="text-[#CC1414]">{stats.tasaAdj.toFixed(0)}%</strong>{" "}
-            sobre las propuestas decididas (adjudicadas o rechazadas). El monto facturado o por facturar sobre proyectos
-            adjudicados asciende a <strong>{fmtMonto(stats.montoAdj)}</strong>.
-          </p>
-          <p className="text-slate-700 leading-relaxed">
-            El pipeline comercial activo (cotizaciones enviadas y proyectos en negociación) representa{" "}
-            <strong>{fmtMonto(stats.montoPipe)}</strong> en {stats.pipeline.length} oportunidades. Aplicando la tasa de
-            adjudicación histórica, la proyección esperada de cierre alcanza aproximadamente{" "}
-            <strong className="text-emerald-700">{fmtMonto(pipelineProyectado)}</strong>.
-          </p>
-        </section>
-
-        <section className="mb-10">
-          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Indicadores clave</h3>
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              ["Total propuestas",    stats.total,                          "Estudios registrados"],
-              ["Tasa adjudicación",   `${stats.tasaAdj.toFixed(0)}%`,       `${stats.adj.length}/${stats.decididas} decididas`],
-              ["Cartera adjudicada",  fmtMonto(stats.montoAdj),             "Monto cerrado"],
-              ["Pipeline activo",     fmtMonto(stats.montoPipe),            `${stats.pipeline.length} oportunidades`],
-              ["Ticket promedio",     fmtMonto(stats.ticketAdj),            "Por proyecto adjudicado"],
-              ["Concentración Top 3", `${stats.concentracion.toFixed(0)}%`, "% propuestas en top 3 clientes"]
-            ].map(([l,v,s], i) => (
-              <div key={i} className="border border-slate-300 rounded p-4">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">{l}</div>
-                <div className={`display-font font-black text-[#0D2B5E] mt-1 ${moneda === "ambos" && typeof v === "string" && v.includes("UF") ? "text-base leading-tight" : "text-3xl"}`}>{v}</div>
-                <div className="text-xs text-slate-600 mt-1">{s}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mb-10">
-          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Distribución por estado</h3>
-          <table className="w-full text-sm border border-slate-300">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="text-left p-2 border border-slate-300">Estado</th>
-                <th className="text-right p-2 border border-slate-300">N° propuestas</th>
-                <th className="text-right p-2 border border-slate-300">% del total</th>
-                <th className="text-right p-2 border border-slate-300">Monto asociado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.porStatus.map((s,i) => (
-                <tr key={i}>
-                  <td className="p-2 border border-slate-300 font-medium">{s.status}</td>
-                  <td className="p-2 border border-slate-300 text-right">{s.n}</td>
-                  <td className="p-2 border border-slate-300 text-right">{(s.n/stats.total*100).toFixed(1)}%</td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(s.monto)}</td>
-                </tr>
-              ))}
-              <tr className="bg-slate-50 font-bold">
-                <td className="p-2 border border-slate-300">TOTAL</td>
-                <td className="p-2 border border-slate-300 text-right">{stats.total}</td>
-                <td className="p-2 border border-slate-300 text-right">100%</td>
-                <td className="p-2 border border-slate-300 text-right font-mono">
-                  {fmtMonto(stats.porStatus.reduce((s,x) => s + x.monto, 0))}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section className="mb-10 print-page">
-          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Top 10 clientes</h3>
-          <table className="w-full text-sm border border-slate-300">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="text-left p-2 border border-slate-300">Cliente</th>
-                <th className="text-right p-2 border border-slate-300">Prop.</th>
-                <th className="text-right p-2 border border-slate-300">Adj.</th>
-                <th className="text-right p-2 border border-slate-300">Rech.</th>
-                <th className="text-right p-2 border border-slate-300">Tasa</th>
-                <th className="text-right p-2 border border-slate-300">Adjudicado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.clientes.slice(0,10).map((c,i) => (
-                <tr key={i}>
-                  <td className="p-2 border border-slate-300">{c.cliente}</td>
-                  <td className="p-2 border border-slate-300 text-right">{c.n}</td>
-                  <td className="p-2 border border-slate-300 text-right">{c.adj}</td>
-                  <td className="p-2 border border-slate-300 text-right">{c.rech}</td>
-                  <td className="p-2 border border-slate-300 text-right">{c.tasa !== null ? `${c.tasa.toFixed(0)}%` : "—"}</td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(c.montoAdj)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="mb-10 print-page">
-          <h3 className="display-font text-2xl font-black uppercase mb-2 text-[#0D2B5E]">Resumen valorizado por servicio prestado</h3>
-          <p className="text-sm text-slate-600 mb-4 italic">
-            Distribución de la cartera adjudicada por línea de servicio. Cuando un proyecto involucra varios servicios,
-            el monto se prorratea en partes iguales entre ellos para estimar la contribución de cada uno.
-          </p>
-          <table className="w-full text-sm border border-slate-300">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="text-left p-2 border border-slate-300">Servicio prestado</th>
-                <th className="text-right p-2 border border-slate-300">Proyectos adj.</th>
-                <th className="text-right p-2 border border-slate-300">Tasa éxito</th>
-                <th className="text-right p-2 border border-slate-300">Monto valorizado</th>
-                <th className="text-right p-2 border border-slate-300">% cartera</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const totalValorizado = stats.serviciosValorizados.reduce((s, x) => s + x.montoAdj, 0);
-                return stats.serviciosValorizados.map((s, i) => (
-                  <tr key={i}>
-                    <td className="p-2 border border-slate-300 font-medium">{s.servicio}</td>
-                    <td className="p-2 border border-slate-300 text-right">{s.adj}</td>
-                    <td className="p-2 border border-slate-300 text-right">
-                      {s.tasa !== null ? `${s.tasa.toFixed(0)}%` : "—"}
-                    </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-xs">{fmtMonto(s.montoAdj)}</td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
-                      {totalValorizado > 0 ? `${(s.montoAdj / totalValorizado * 100).toFixed(1)}%` : "—"}
-                    </td>
-                  </tr>
-                ));
-              })()}
-              <tr className="bg-slate-50 font-bold">
-                <td className="p-2 border border-slate-300">TOTAL VALORIZADO</td>
-                <td className="p-2 border border-slate-300 text-right">{stats.adj.length}</td>
-                <td className="p-2 border border-slate-300 text-right">{stats.tasaAdj.toFixed(0)}%</td>
-                <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                  {fmtMonto(stats.serviciosValorizados.reduce((s, x) => s + x.montoAdj, 0))}
-                </td>
-                <td className="p-2 border border-slate-300 text-right font-mono">100%</td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="text-xs text-slate-500 mt-3 italic">
-            Nota metodológica: el "monto valorizado por servicio" suma la fracción proporcional de cada proyecto adjudicado,
-            por lo que el total coincide con la cartera adjudicada global. Los proyectos sin monto registrado no aportan.
-          </p>
-        </section>
-
-        <section className="mb-10">
-          <h3 className="display-font text-2xl font-black uppercase mb-4 text-[#0D2B5E]">Hallazgos y recomendaciones</h3>
-          <div className="space-y-4">
-            {insights.map((it,i) => (
-              <div key={i} className="border-l-4 border-[#CC1414] pl-4 py-2">
-                <div className="text-[10px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-1">{tagMap[it.tipo] || "Hallazgo"}</div>
-                <h4 className="font-bold text-base mb-1">{it.titulo}</h4>
-                <p className="text-sm text-slate-700 mb-2">{it.detalle}</p>
-                <p className="text-sm text-slate-900"><strong>Acción recomendada: </strong>{it.accion}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="border-t-2 border-slate-300 pt-4 text-xs text-slate-500 flex justify-between">
-          <span>Soil Limitada · Sociedad Constructora e Inversiones</span>
-          <span>Generado el {fechaInforme}</span>
-        </div>
       </div>
     </div>
   );

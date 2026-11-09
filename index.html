@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.14.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.15.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.14.1";
+const APP_VERSION = "v6.15.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -1087,9 +1087,9 @@ function App() {
         <nav className="max-w-[1600px] mx-auto px-6 flex gap-1 overflow-x-auto">
           {[
             { id: "dashboard",   label: "Dashboard",   icon: "chart" },
+            { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
             { id: "cotizaciones",label: "Cotizaciones",icon: "calculator" },
             { id: "cotmenor",    label: "Cot. Menor",  icon: "copy" },
-            { id: "propuestas",  label: "Propuestas",  icon: "briefcase" },
             { id: "estadospago", label: "Estados de Pago", icon: "dollar" }
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}

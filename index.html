@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.18.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.18.0";
+const APP_VERSION = "v6.19.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6131,6 +6131,9 @@ function HistorialEPModal({ historial, onClose, onOpen, onDuplicate, onDelete })
 // bombas, aditamentos). Replica el formato breve de una carta oferta Soil:
 // encabezado, destinatario, cuadro de ítems, condiciones particulares y firma.
 // ============================================================================
+const FIRMA_REP_URL   = "firma-representante.png";   // firma del representante legal
+const FIRMA_REP_RATIO = 520 / 410;                   // ancho / alto
+
 const CM_UNIDADES = ["Mes", "Día", "Hora", "Jornada", "Viaje", "Gl", "Un", "m³", "m²", "ml"];
 const CM_ESTADOS  = ["Borrador", "Enviada", "En revisión", "Adjudicada", "Rechazada", "Vencida"];
 
@@ -6231,6 +6234,26 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
       try {
         const t = await cargarLogo();
         if (t) setLogoUri("data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(t))));
+      } catch (e) {}
+    })();
+  }, []);
+
+  // Firma del representante legal, también como data URI para que quede
+  // incrustada en el Word descargado y no dependa de una ruta del servidor.
+  const [firmaUri, setFirmaUri] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(FIRMA_REP_URL, { cache: "force-cache" });
+        if (!r.ok) return;
+        const blob = await r.blob();
+        if (blob.size < 100 || blob.type.indexOf("image") !== 0) return;
+        setFirmaUri(await new Promise((res) => {
+          const fr = new FileReader();
+          fr.onload  = () => res(String(fr.result || ""));
+          fr.onerror = () => res("");
+          fr.readAsDataURL(blob);
+        }));
       } catch (e) {}
     })();
   }, []);
@@ -6626,9 +6649,15 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
       }
 
       // ---------- Firma ----------
-      sitio(42);
+      sitio(58);
       y += 6;
-      parrafo("Atentamente,", { gap: 22 });
+      parrafo("Atentamente,", { gap: 4 });
+      const anchoF = 38, altoF = anchoF / FIRMA_REP_RATIO;
+      if (firmaUri) {
+        try { doc.addImage(firmaUri, "PNG", M + 2, y, anchoF, altoF, "firmaRep", "FAST"); }
+        catch (e) { /* si falla, queda el espacio para firmar a mano */ }
+      }
+      y += altoF + 1.5;               // el timbre queda completo sobre la línea
       doc.setDrawColor(100, 116, 139); doc.setLineWidth(0.3);
       doc.line(M, y, M + 70, y);
       y += 5;
@@ -6884,7 +6913,11 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
               )}
 
               <div style={{ marginTop: 34 }}>Atentamente,</div>
-              <div style={{ marginTop: 40, fontWeight: 700 }}>{cm.firmante}</div>
+              {firmaUri
+                ? <img src={firmaUri} alt="Firma del representante legal" style={{ height: 76, width: "auto", marginTop: 6, marginBottom: -10 }} />
+                : <div style={{ height: 46 }} />}
+              <div style={{ borderTop: "1px solid #64748b", width: 190, marginTop: 4 }} />
+              <div style={{ marginTop: 4, fontWeight: 700 }}>{cm.firmante}</div>
               <div>{cm.cargo_firmante}</div>
               <div style={{ fontSize: 10 }}>{cm.razon_social}</div>
 

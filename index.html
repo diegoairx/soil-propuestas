@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.1 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.19.0";
+const APP_VERSION = "v6.19.1";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -883,16 +883,26 @@ function App() {
       .sort((a, b) => a.cliente.localeCompare(b.cliente));
   }, [data]);
 
+  // Columnas que la tabla propuestas realmente acepta. El guardado se arma con
+  // esta lista blanca: así los campos que solo existen en pantalla (creado, id,
+  // y los que se agreguen a futuro) nunca viajan a la base. Antes se quitaban
+  // de a uno y bastaba agregar una columna de solo lectura para romper el
+  // guardado con "Could not find the 'X' column of 'propuestas'".
+  const PROP_COLUMNAS = ["proyecto", "cliente", "contacto", "email", "telefono",
+                         "monto_uf", "status", "servicios", "ultimo_contacto", "notas"];
+
   const updateRow = async (id, patch) => {
     if (isOffline) {
       setData(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
       return;
     }
     setSyncStatus("syncing");
-    const dbPatch = { ...patch };
-    if ("monto" in dbPatch) { dbPatch.monto_uf = dbPatch.monto; delete dbPatch.monto; }
-    if ("notas_db" in dbPatch) { dbPatch.notas = dbPatch.notas_db; delete dbPatch.notas_db; }
-    delete dbPatch.id;
+    const origen = { ...patch };
+    if ("monto" in origen)    { origen.monto_uf = origen.monto;    delete origen.monto; }
+    if ("notas_db" in origen) { origen.notas    = origen.notas_db; delete origen.notas_db; }
+    const dbPatch = {};
+    PROP_COLUMNAS.forEach(k => { if (k in origen) dbPatch[k] = origen[k]; });
+    if (Object.keys(dbPatch).length === 0) { setSyncStatus("synced"); return; }
     const { error } = await db.from("propuestas").update(dbPatch).eq("id", id);
     if (error) { console.error(error); alert("Error al actualizar: " + error.message); setSyncStatus("error"); }
     else setSyncStatus("synced");

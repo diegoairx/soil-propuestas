@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.2 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.19.1";
+const APP_VERSION = "v6.19.2";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6742,9 +6742,18 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
             <div className="grid grid-cols-2 gap-3">
               <EPCampo label="Señor(a)"><input className={EP_INP} value={cm.destinatario} onChange={e => setCm(c => ({ ...c, destinatario: e.target.value }))} placeholder="Nombre del contacto" /></EPCampo>
               <EPCampo label="Empresa">
-                <input className={EP_INP} list="cm-empresas" value={cm.empresa} onChange={e => setCm(c => ({ ...c, empresa: e.target.value }))} placeholder="Razón social" />
+                <input className={EP_INP} list="cm-empresas" value={cm.empresa}
+                  onChange={e => {
+                    const nombre = e.target.value;
+                    // El directorio guarda el último contacto conocido de cada cliente:
+                    // al elegir del listado se completa solo, si aún está vacío.
+                    const dir = (directorioClientes || []).find(d => d.cliente === nombre);
+                    setCm(c => ({ ...c, empresa: nombre,
+                      destinatario: (!c.destinatario && dir && dir.contacto) ? dir.contacto : c.destinatario }));
+                  }}
+                  placeholder="Razón social" />
                 <datalist id="cm-empresas">
-                  {(directorioClientes || []).map((x, i) => <option key={i} value={x} />)}
+                  {(directorioClientes || []).map((x, i) => <option key={i} value={x.cliente} />)}
                 </datalist>
               </EPCampo>
               <EPCampo label="Ubicación del proyecto" className="col-span-2"><input className={EP_INP} value={cm.ubicacion} onChange={e => setCm(c => ({ ...c, ubicacion: e.target.value }))} placeholder="Ciudad o comuna de la obra" /></EPCampo>

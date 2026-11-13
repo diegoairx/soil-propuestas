@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.23.1 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.23.2 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.23.1";
+const APP_VERSION = "v6.23.2";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6327,6 +6327,13 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   const [historial, setHist]  = useState([]);
   const [catalogo, setCat]    = useState([]);
   const [showHist, setShowHist] = useState(false);
+  // La vista previa se escala: sus tamaños son píxeles fijos (debe verse como
+  // el documento final), así que achicar la tipografía base no la encoge.
+  const [zoomVista, setZoomVista] = useState(() => {
+    const v = parseFloat(localStorage.getItem("soil_cm_zoom") || "");
+    return v >= 0.5 && v <= 1 ? v : 0.75;
+  });
+  useEffect(() => { try { localStorage.setItem("soil_cm_zoom", String(zoomVista)); } catch (e) {} }, [zoomVista]);
   const [sync, setSync]       = useState("idle");
   const [toast, setToast]     = useState(null);
   const printRef = useRef(null);
@@ -6942,8 +6949,23 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
         {/* ------------------------------ VISTA PREVIA ------------------------------ */}
         <div className="lg:sticky lg:top-24 self-start">
           <div className="bg-white border border-slate-200 shadow-lg rounded overflow-hidden">
-            <div className="no-print px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Vista previa del documento</div>
-            <div ref={printRef} className="p-8 text-[11px] leading-relaxed text-slate-800" style={{ fontFamily: "Calibri, Inter, sans-serif" }}>
+            <div className="no-print px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Vista previa del documento</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setZoomVista(z => Math.max(0.5, Math.round((z - 0.05) * 100) / 100))}
+                  title="Reducir" className="w-6 h-6 rounded border border-slate-300 bg-white text-slate-600 hover:border-[#0D2B5E] hover:text-[#0D2B5E] leading-none">−</button>
+                <button onClick={() => setZoomVista(0.75)} title="Volver al tamaño por defecto"
+                  className="px-2 h-6 rounded border border-slate-300 bg-white text-[10px] font-mono text-slate-600 hover:border-[#0D2B5E] hover:text-[#0D2B5E] tabular-nums">
+                  {Math.round(zoomVista * 100)}%
+                </button>
+                <button onClick={() => setZoomVista(z => Math.min(1, Math.round((z + 0.05) * 100) / 100))}
+                  title="Ampliar" className="w-6 h-6 rounded border border-slate-300 bg-white text-slate-600 hover:border-[#0D2B5E] hover:text-[#0D2B5E] leading-none">+</button>
+              </div>
+            </div>
+            {/* El zoom se aplica por fuera de printRef: la exportación a Word
+                toma el contenido interno y no debe heredar la escala */}
+            <div style={{ zoom: zoomVista }}>
+            <div ref={printRef} className="p-6 text-[11px] leading-relaxed text-slate-800" style={{ fontFamily: "Calibri, Inter, sans-serif" }}>
               {/* Membrete: tabla en vez de flexbox, porque Word no interpreta flex */}
               <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 6 }}>
                 <tbody>
@@ -7048,6 +7070,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
               <div style={{ marginTop: 20, paddingTop: 8, borderTop: "2px solid #CC1414", fontSize: 9, color: "#64748b", textAlign: "center" }}>
                 Sociedad Constructora e Inversiones Soil Ltda.  |  Ramón Carrasco #231 Casa N°93, Lomas de Antilhue, Concepción  |  constructora@soilconstructora.cl  |  www.soilconstructora.cl
               </div>
+            </div>
             </div>
           </div>
         </div>

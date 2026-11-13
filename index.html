@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.28.0 · BUILD 2026-11-13</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.29.0 · BUILD 2026-11-13</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.28.0";
+const APP_VERSION = "v6.29.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -410,6 +410,48 @@ const SERVICIOS_CATALOGO = [
   "Shotcrete",
   "Suministro de áridos"
 ].sort();
+
+// Palabras con las que cada servicio del catálogo aparece escrito en una
+// cotización. Sirven para deducir los servicios de una propuesta creada
+// automáticamente, en vez de copiar un campo que no corresponde.
+// Las claves son deliberadamente estrictas: es preferible no detectar nada
+// (y que el usuario lo elija) a etiquetar un servicio equivocado.
+const SERVICIOS_CLAVES = {
+  "Agotamiento":              ["agotamiento", "abatimiento de napa", "wellpoint", "punteras"],
+  "Arriendo de camión tolva": ["arriendo de camion tolva"],
+  "Arriendo de generadores":  ["generador", "grupo electrogeno"],
+  "Arriendo de maquinaria":   ["arriendo de maquinaria", "arriendo de excavadora", "arriendo de retroexcavadora", "arriendo de equipo"],
+  "Columnas de grava":        ["columna de grava", "columnas de grava"],
+  "Demolición mecánica":      ["demolicion"],
+  "Entibación tipo MBA":      ["mba", "berlines anclado"],
+  "Entibación tipo MBV":      ["mbv", "berlines vertical"],
+  "Entibación tipo MSN":      ["msn", "soil nailing"],
+  "Escarpe de terreno":       ["escarpe"],
+  "Flete con camión tolva":   ["flete"],
+  "Hincado de perfiles":      ["hincado de perfil", "hinca de perfil"],
+  "Micropilotes":             ["micropilote"],
+  "Movimiento de tierra":     ["movimiento de tierra", "excavacion masiva"],
+  "Perforación de anclajes":  ["perforacion de anclaje", "anclaje activo", "anclaje postensado", "anclajes postensados"],
+  "Perforación de pernos":    ["perforacion de perno", "perno de anclaje"],
+  "Rellenos compactados":     ["relleno compactado", "rellenos compactados"],
+  "Shotcrete":                ["shotcrete", "hormigon proyectado"],
+  "Suministro de áridos":     ["suministro de arido"]
+};
+
+// Deduce los servicios del catálogo mencionados en un texto libre.
+// Devuelve "" si no reconoce ninguno: mejor vacío que un dato erróneo.
+const detectarServicios = (...partes) => {
+  const texto = partes.flat(Infinity).filter(Boolean).join(" · ")
+    .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (!texto.trim()) return "";
+  const hallados = SERVICIOS_CATALOGO.filter(serv =>
+    (SERVICIOS_CLAVES[serv] || []).some(clave => clave.length <= 4
+      // Siglas como MBA/MBV/MSN solo valen como palabra completa
+      ? new RegExp("\\b" + clave + "\\b").test(texto)
+      : texto.includes(clave))
+  );
+  return hallados.join(", ");
+};
 
 // Conversión CLP <> UF
 // El usuario configura el valor UF actual desde la UI (cambia día a día en Chile)
@@ -1568,6 +1610,12 @@ function Propuestas(p) {
                 if (isEditing) return (
                   <tr key={rowId} className="border-b border-slate-200 bg-slate-50">
                     <td colSpan={8} className="p-4">
+                      {/* La fila en edición reemplaza al encabezado: sin este
+                          rótulo se confunde con la propuesta de arriba. */}
+                      <div className="mb-3 pb-2 border-b border-slate-200 text-[11px] uppercase tracking-wider font-semibold text-slate-500">
+                        Editando · <span className="text-[#0D2B5E]">{row.proyecto || "sin proyecto"}</span>
+                        <span className="normal-case tracking-normal text-slate-400"> · {row.cliente || "sin cliente"}</span>
+                      </div>
                       <EditForm draft={p.editDraft} setDraft={p.setEditDraft} onSave={p.saveEdit} onCancel={p.cancelEdit} directorio={p.directorioClientes || []} />
                     </td>
                   </tr>
@@ -2997,7 +3045,11 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
         telefono:  cot.cliente.telefono || null,
         monto_uf:  Number(totales.total_uf) || 0,
         status:    mapEstado[cot.estado_oferta] || "Cotización enviada",
-        servicios: cot.proyecto.ubicacion || null,
+        servicios: detectarServicios(
+                     cot.proyecto.referencia,
+                     (cot.item2_partidas || []).map(x => x.descripcion),
+                     cot.proyecto.nombre
+                   ) || null,
         ultimo_contacto: hoyTxt,
         notas:     "Creada automáticamente desde la cotización " + cot.numero
       };
@@ -6538,7 +6590,10 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
         proyecto: nombreProy, cliente: cm.empresa,
         contacto: cm.destinatario || null,
         monto_uf: montoUf, status: mapEstadoCM[cm.estado] || "Cotización enviada",
-        servicios: primera || null, ultimo_contacto: hoyTxt,
+        servicios: detectarServicios(
+                     calc.items.map(i => i.descripcion), cm.proyecto
+                   ) || null,
+        ultimo_contacto: hoyTxt,
         notas: "Creada automáticamente desde la cotización menor " + cm.numero
       }).select("id").single();
       if (r0.error) { flash("Guardada — no se pudo crear la propuesta: " + r0.error.message, "err"); }

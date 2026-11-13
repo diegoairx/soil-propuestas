@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.19.2 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.20.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.19.2";
+const APP_VERSION = "v6.20.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -3159,7 +3159,6 @@ th { background: #0D2B5E; color: #fff; font-weight: 700; }
                         telefono: datos.telefono || c.cliente.telefono || "" }
                     : { ...c.cliente, razon_social: nombre }
                 }))} />
-              <CotField label="RUT"           value={cot.cliente.rut}          onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, rut: v } }))} placeholder="76.xxx.xxx-x" />
               <CotField label="Contacto"      value={cot.cliente.contacto}     onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, contacto: v } }))} />
               <CotField label="Cargo"         value={cot.cliente.cargo}        onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, cargo: v } }))} />
               <CotField label="Email"         value={cot.cliente.email}        onChange={v => setCot(c => ({ ...c, cliente: { ...c.cliente, email: v } }))} />
@@ -6164,6 +6163,7 @@ const CM_VACIA = () => {
     ciudad: "Concepción",
     destinatario: "",
     empresa: "",
+    proyecto: "",
     ubicacion: "",
     moneda: "UF",
     uf_clp: 0,
@@ -6276,7 +6276,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   const cargarHistorial = async () => {
     if (!supaOn) return;
     const { data, error } = await db.from("cotizaciones_menores")
-      .select("id,numero,fecha,empresa,destinatario,ubicacion,moneda,estado,total,items_n,created_at,updated_at")
+      .select("id,numero,fecha,empresa,destinatario,proyecto,ubicacion,moneda,estado,total,items_n,created_at,updated_at")
       .order("updated_at", { ascending: false });
     if (!error) setHist(data || []);
   };
@@ -6314,6 +6314,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
     const fila = {
       numero: cm.numero, fecha: cm.fecha || null, ciudad: cm.ciudad || null,
       destinatario: cm.destinatario || null, empresa: cm.empresa || null,
+      proyecto: cm.proyecto || null,
       ubicacion: cm.ubicacion || null, moneda: cm.moneda,
       uf_clp: Number(cm.uf_clp) || 0, validez: cm.validez || null,
       estado: cm.estado || "Borrador", total: calc.total,
@@ -6342,7 +6343,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
       : (Number(cm.uf_clp) > 0 ? calc.total / Number(cm.uf_clp) : 0);
     const hoyTxt = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const primera = (calc.items.find(i => i.descripcion) || {}).descripcion || "";
-    const nombreProy = "Servicios menores · " + (cm.ubicacion || primera || cm.numero);
+    const nombreProy = cm.proyecto || ("Servicios menores · " + (cm.ubicacion || primera || cm.numero));
 
     if (!cm.propuesta_id) {
       const r0 = await db.from("propuestas").insert({
@@ -6568,7 +6569,8 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
       parrafo("Presente", { gap: 4 });
 
       parrafo("De mi consideración:", { gap: 3 });
-      parrafo((cm.intro || "") + " " + (cm.ubicacion || "—") + ":", { gap: 4 });
+      parrafo((cm.intro || "") + " " + (cm.ubicacion || "—") + ":", { gap: cm.proyecto ? 1.6 : 4 });
+      if (cm.proyecto) parrafo("Proyecto: " + cm.proyecto, { bold: true, gap: 4 });
 
       // ---------- Cuadro de ítems ----------
       const filas = calc.items.map(it => [
@@ -6756,6 +6758,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
                   {(directorioClientes || []).map((x, i) => <option key={i} value={x.cliente} />)}
                 </datalist>
               </EPCampo>
+              <EPCampo label="Nombre del proyecto" className="col-span-2"><input className={EP_INP} value={cm.proyecto} onChange={e => setCm(c => ({ ...c, proyecto: e.target.value }))} placeholder="Ej: Edificio Central Sur II" /></EPCampo>
               <EPCampo label="Ubicación del proyecto" className="col-span-2"><input className={EP_INP} value={cm.ubicacion} onChange={e => setCm(c => ({ ...c, ubicacion: e.target.value }))} placeholder="Ciudad o comuna de la obra" /></EPCampo>
             </div>
           </div>
@@ -6865,7 +6868,8 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
               <div style={{ marginTop: 10, marginBottom: 14 }}>Presente</div>
 
               <div style={{ marginBottom: 10 }}>De mi consideración:</div>
-              <div style={{ marginBottom: 12 }}>{cm.intro} {cm.ubicacion || "—"}:</div>
+              <div style={{ marginBottom: cm.proyecto ? 4 : 12 }}>{cm.intro} {cm.ubicacion || "—"}:</div>
+              {cm.proyecto && <div style={{ marginBottom: 12 }}><strong>Proyecto:</strong> {cm.proyecto}</div>}
 
               <table style={{ width: "100%", borderCollapse: "collapse", margin: "10px 0" }}>
                 <thead>
@@ -6980,7 +6984,7 @@ function CMLista({ titulo, items, onChange, onAdd, onDel }) {
 const CM_COLS = [
   { k: "numero",       t: "Correlativo", tipo: "texto" },
   { k: "fecha",        t: "Fecha",       tipo: "fecha" },
-  { k: "ubicacion",    t: "Proyecto",    tipo: "texto" },
+  { k: "proyecto",     t: "Proyecto",    tipo: "texto" },
   { k: "empresa",      t: "Cliente",     tipo: "texto" },
   { k: "destinatario", t: "Contacto",    tipo: "texto" },
   { k: "estado",       t: "Estado",      tipo: "texto" },
@@ -7007,7 +7011,7 @@ function CMHistorialModal({ historial, onClose, onOpen, onDuplicate, onDelete })
   const lista = historial || [];
   const unicos = (k) => [...new Set(lista.map(h => String(h[k] || "").trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "es"));
-  const proyectos = useMemo(() => unicos("ubicacion"), [historial]);
+  const proyectos = useMemo(() => unicos("proyecto"), [historial]);
   const clientes  = useMemo(() => unicos("empresa"),   [historial]);
 
   const aDia = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
@@ -7019,7 +7023,7 @@ function CMHistorialModal({ historial, onClose, onOpen, onDuplicate, onDelete })
     const nq = fNum.trim().toLowerCase();
     return lista.filter(h => {
       if (nq && !String(h.numero || "").toLowerCase().includes(nq)) return false;
-      if (fProy && (h.ubicacion || "") !== fProy) return false;
+      if (fProy && (h.proyecto || "") !== fProy) return false;
       if (fCli  && (h.empresa   || "") !== fCli)  return false;
       if (di || hf) {
         const d = aDia(h.fecha);
@@ -7120,7 +7124,7 @@ function CMHistorialModal({ historial, onClose, onOpen, onDuplicate, onDelete })
                   <tr key={h.id} className="hover:bg-slate-50">
                     <td className="px-2 py-1.5 font-mono font-bold text-[#CC1414] whitespace-nowrap">{h.numero}</td>
                     <td className="px-2 py-1.5 text-slate-600 font-mono whitespace-nowrap">{fmtF(h.fecha)}</td>
-                    <td className="px-2 py-1.5 text-slate-800"><div className="max-w-[220px] truncate" title={h.ubicacion || ""}>{h.ubicacion || "—"}</div></td>
+                    <td className="px-2 py-1.5 text-slate-800"><div className="max-w-[220px] truncate" title={h.proyecto || h.ubicacion || ""}>{h.proyecto || h.ubicacion || "—"}</div></td>
                     <td className="px-2 py-1.5 text-slate-600"><div className="max-w-[220px] truncate" title={h.empresa || ""}>{h.empresa || "—"}</div></td>
                     <td className="px-2 py-1.5 text-slate-600">{h.destinatario || "—"}</td>
                     <td className="px-2 py-1.5">

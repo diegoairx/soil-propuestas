@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.20.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.21.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -181,7 +181,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.20.0";
+const APP_VERSION = "v6.21.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -399,12 +399,24 @@ const fmtUF = (uf) => {
 const fmtUFLargo = (uf) => `${(uf || 0).toLocaleString("es-CL", { maximumFractionDigits: 1 })} UF`;
 
 const fmtCLP = (n) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(n || 0);
+// Las fechas de contacto se guardan como texto. Durante un tiempo convivieron
+// barras y guiones, y este lector solo entendía barras: las demás se trataban
+// como "sin fecha" y quedaban fuera del tablero sin avisar. Ahora acepta
+// ambos separadores, y fechaCL es el único formato que se escribe.
 const parseDate = (s) => {
   if (!s) return null;
-  const m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const m = String(s).match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
   if (!m) return null;
-  return new Date(+m[3], +m[2]-1, +m[1]);
+  const d = new Date(+m[3], +m[2] - 1, +m[1]);
+  return isNaN(d) ? null : d;
 };
+
+const fechaCL = (d) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear();
+};
+// Normaliza lo que venga (tecleado o heredado) al formato único dd/mm/aaaa
+const normFecha = (s) => { const d = parseDate(s); return d ? fechaCL(d) : (s || ""); };
 
 // localStorage wrapper
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch(e) { return null; } };
@@ -900,6 +912,7 @@ function App() {
     const origen = { ...patch };
     if ("monto" in origen)    { origen.monto_uf = origen.monto;    delete origen.monto; }
     if ("notas_db" in origen) { origen.notas    = origen.notas_db; delete origen.notas_db; }
+    if ("ultimo_contacto" in origen) origen.ultimo_contacto = normFecha(origen.ultimo_contacto);
     const dbPatch = {};
     PROP_COLUMNAS.forEach(k => { if (k in origen) dbPatch[k] = origen[k]; });
     if (Object.keys(dbPatch).length === 0) { setSyncStatus("synced"); return; }
@@ -930,7 +943,7 @@ function App() {
     const dbRow = {
       proyecto: row.proyecto, cliente: row.cliente, contacto: row.contacto,
       email: row.email, telefono: row.telefono, monto_uf: row.monto || 0,
-      status: row.status, servicios: row.servicios, ultimo_contacto: row.ultimo_contacto,
+      status: row.status, servicios: row.servicios, ultimo_contacto: normFecha(row.ultimo_contacto),
       notas: row.notas_db || ""
     };
     const { error } = await db.from("propuestas").insert([dbRow]);
@@ -2878,7 +2891,7 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
     // en el seguimiento comercial. El id queda guardado en la cotización, así
     // que al volver a guardar se actualiza esa misma y no se duplica.
     if (!cot.propuesta_id) {
-      const hoyTxt = new Date().toLocaleDateString("es-CL", { day:"2-digit", month:"2-digit", year:"numeric" });
+      const hoyTxt = fechaCL(new Date());
       const nuevaProp = {
         proyecto:  cot.proyecto.nombre || ("Cotización " + cot.numero),
         cliente:   cot.cliente.razon_social,
@@ -2912,7 +2925,7 @@ function Cotizaciones({ ufClp, clientesUnicos, directorioClientes = [], propuest
         const updateProp = {
           status: nuevoStatusProp,
           monto_uf: Number(totales.total_uf) || 0,
-          ultimo_contacto: new Date().toLocaleDateString("es-CL", { day:"2-digit", month:"2-digit", year:"numeric" })
+          ultimo_contacto: fechaCL(new Date())
         };
         const r2 = await db.from("propuestas").update(updateProp).eq("id", cot.propuesta_id);
         if (r2.error) {
@@ -6341,7 +6354,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
     const montoUf = cm.moneda === "UF"
       ? calc.total
       : (Number(cm.uf_clp) > 0 ? calc.total / Number(cm.uf_clp) : 0);
-    const hoyTxt = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const hoyTxt = fechaCL(new Date());
     const primera = (calc.items.find(i => i.descripcion) || {}).descripcion || "";
     const nombreProy = cm.proyecto || ("Servicios menores · " + (cm.ubicacion || primera || cm.numero));
 

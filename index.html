@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.24.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.25.0 · BUILD 2026-11-13</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.24.0";
+const APP_VERSION = "v6.25.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6270,7 +6270,22 @@ const cmItem = (p = {}) => ({
   unidad: p.unidad || "Mes",
   cantidad: Number(p.cantidad) || 0,
   precio: Number(p.precio) || 0,
-  nota: p.nota || ""
+  // Desde v6.25 cada item admite varias notas. Las cotizaciones guardadas
+  // antes traen una sola nota como texto ("nota"): se convierte al arreglo.
+  notas: Array.isArray(p.notas)
+    ? (p.notas.length ? p.notas.map(x => String(x == null ? "" : x)) : [""])
+    : (p.nota ? [String(p.nota)] : [""])
+});
+
+// Pasa los items de una cotizacion guardada por cmItem para que el formato
+// antiguo (nota unica) quede normalizado al abrir, duplicar o restaurar.
+const cmNormItem = (it = {}) => {
+  const base = cmItem(it);
+  return it.id ? { ...base, id: it.id } : base;
+};
+const cmNormalizar = (c = {}) => ({
+  ...c,
+  items: (Array.isArray(c.items) ? c.items : []).map(cmNormItem)
 });
 
 const CM_VACIA = () => {
@@ -6324,6 +6339,22 @@ const cmCalcular = (cm) => {
   return { items, total };
 };
 
+// Aplana las notas de todos los items a una lista lista para imprimir. Si un
+// item tiene mas de una nota se numeran 1.1, 1.2; con una sola queda "1".
+const cmNotas = (items) => {
+  const out = [];
+  (items || []).forEach(it => {
+    const ns = (Array.isArray(it.notas) ? it.notas : (it.nota ? [it.nota] : []))
+      .map(n => String(n == null ? "" : n).trim()).filter(Boolean);
+    ns.forEach((texto, k) => out.push({
+      clave: String(it.id) + "-" + k,
+      etiqueta: ns.length > 1 ? it.n + "." + (k + 1) : String(it.n),
+      texto
+    }));
+  });
+  return out;
+};
+
 const cmFechaLarga = (iso) => {
   if (!iso) return "";
   const d = new Date(iso + "T12:00:00");
@@ -6337,7 +6368,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   const [cm, setCm] = useState(() => {
     try {
       const g = localStorage.getItem(CM_STORAGE);
-      if (g) { const p = JSON.parse(g); if (p && Array.isArray(p.items)) return { ...CM_VACIA(), ...p }; }
+      if (g) { const p = JSON.parse(g); if (p && Array.isArray(p.items)) return cmNormalizar({ ...CM_VACIA(), ...p }); }
     } catch (e) {}
     return CM_VACIA();
   });
@@ -6419,6 +6450,17 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
     ...c, items: c.items.map(it => it.id === id ? { ...it, [campo]: valor } : it)
   }));
   const delItem = (id) => setCm(c => ({ ...c, items: c.items.filter(it => it.id !== id) }));
+  // ----- Notas del item (varias por item) -----
+  const notasDe = (it) => (Array.isArray(it.notas) && it.notas.length) ? it.notas : [""];
+  const mapNotas = (id, fn) => setCm(c => ({
+    ...c, items: c.items.map(it => it.id === id ? { ...it, notas: fn(notasDe(it)) } : it)
+  }));
+  const setNota = (id, k, v) => mapNotas(id, ns => ns.map((n, j) => j === k ? v : n));
+  const addNota = (id)       => mapNotas(id, ns => [...ns, ""]);
+  const delNota = (id, k)    => mapNotas(id, ns => {
+    const r = ns.filter((_, j) => j !== k);
+    return r.length ? r : [""];
+  });
   const moverItem = (id, dir) => setCm(c => {
     const arr = [...c.items]; const i = arr.findIndex(x => x.id === id);
     const j = i + dir; if (i < 0 || j < 0 || j >= arr.length) return c;
@@ -6507,7 +6549,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   const abrir = async (row) => {
     const { data, error } = await db.from("cotizaciones_menores").select("id,data").eq("id", row.id).single();
     if (error) { flash("No se pudo abrir", "err"); return; }
-    setCm({ ...CM_VACIA(), ...(data.data || {}) });
+    setCm(cmNormalizar({ ...CM_VACIA(), ...(data.data || {}) }));
     setCmId(data.id); setShowHist(false);
     flash("Cotización " + row.numero + " abierta");
   };
@@ -6518,7 +6560,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
     const h = new Date();
     setCm({
       ...CM_VACIA(), ...(data.data || {}),
-      items: ((data.data || {}).items || []).map(it => ({ ...it, id: Date.now() + Math.random() })),
+      items: ((data.data || {}).items || []).map(it => ({ ...cmNormItem(it), id: Date.now() + Math.random() })),
       numero: "Cot. N°[NÚMERO]/" + h.getFullYear(),
       fecha: h.toISOString().slice(0, 10),
       estado: "Borrador",
@@ -6740,16 +6782,16 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
       }
 
       // ---------- Notas por ítem ----------
-      const conNota = calc.items.filter(i => i.nota);
+      const conNota = cmNotas(calc.items);
       if (conNota.length) {
         titulo("Descripción de ítems ofertados");
         conNota.forEach(i => {
           doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
           doc.setTextColor(31, 41, 55);
-          const etiqueta = "Ítem " + i.n + "  ";
+          const etiqueta = "Ítem " + i.etiqueta + "  ";
           const wEt = doc.getTextWidth(etiqueta);
           doc.setFont("helvetica", "normal");
-          const lineas = doc.splitTextToSize(String(i.nota), ANCHO - wEt);
+          const lineas = doc.splitTextToSize(String(i.texto), ANCHO - wEt);
           const alto = lineas.length * 9.5 * 0.42;
           sitio(alto);
           doc.setFont("helvetica", "bold"); doc.text(etiqueta, M, y);
@@ -6928,7 +6970,23 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
                     <input type="number" step="0.01" className={EP_INP} value={it.precio} placeholder="P. unitario" onChange={e => setItem(it.id, "precio", e.target.value)} />
                     <div className="text-sm font-mono text-right self-center font-semibold text-[#0D2B5E]">{sim} {fmtNum(it.total, dec)}</div>
                   </div>
-                  <input className={EP_INP + " ml-7 w-[calc(100%-1.75rem)]"} value={it.nota} placeholder="Nota del ítem (ej: considera uso 8 horas diarias, no incluye combustible)" onChange={e => setItem(it.id, "nota", e.target.value)} />
+                  <div className="pl-7 space-y-1.5">
+                    {notasDe(it).map((nt, k) => (
+                      <div key={k} className="flex items-center gap-1.5">
+                        <input className={EP_INP + " flex-1 min-w-0"} value={nt}
+                          placeholder={k === 0 ? "Nota del ítem (ej: considera uso 8 horas diarias, no incluye combustible)" : "Nota adicional del ítem"}
+                          onChange={e => setNota(it.id, k, e.target.value)} />
+                        <button onClick={() => delNota(it.id, k)} title="Quitar nota"
+                          className="shrink-0 p-1 rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50">
+                          <Icon name="trash" className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button onClick={() => addNota(it.id)}
+                      className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 hover:text-[#0D2B5E]">
+                      + Agregar nota
+                    </button>
+                  </div>
                 </div>
               ))}
               {calc.items.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Sin ítems. Agrega uno desde el catálogo o en blanco.</div>}
@@ -7039,11 +7097,11 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
               </table>
               {equiv(calc.total) && <div style={{ textAlign: "right", fontSize: 10, color: "#64748b" }}>Equivalente aproximado: {equiv(calc.total)}</div>}
 
-              {calc.items.some(i => i.nota) && (
+              {cmNotas(calc.items).length > 0 && (
                 <>
                   <h3 style={{ color: "#0D2B5E", fontSize: 11, margin: "16px 0 6px", fontWeight: 700 }}>Descripción de ítems ofertados</h3>
-                  {calc.items.filter(i => i.nota).map(i => (
-                    <div key={i.id} style={{ marginBottom: 3 }}><strong>Ítem {i.n}</strong> {i.nota}</div>
+                  {cmNotas(calc.items).map(nt => (
+                    <div key={nt.clave} style={{ marginBottom: 3 }}><strong>Ítem {nt.etiqueta}</strong> {nt.texto}</div>
                   ))}
                 </>
               )}

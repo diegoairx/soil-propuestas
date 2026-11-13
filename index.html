@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.23.3 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.24.0 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.23.3";
+const APP_VERSION = "v6.24.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -6349,7 +6349,7 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
   // el documento final), así que achicar la tipografía base no la encoge.
   const [zoomVista, setZoomVista] = useState(() => {
     const v = parseFloat(localStorage.getItem("soil_cm_zoom") || "");
-    return v >= 0.5 && v <= 1 ? v : 0.75;
+    return v >= 0.5 && v <= 1 ? v : 0.68;
   });
   useEffect(() => { try { localStorage.setItem("soil_cm_zoom", String(zoomVista)); } catch (e) {} }, [zoomVista]);
   const [sync, setSync]       = useState("idle");
@@ -6847,9 +6847,10 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
         </button>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* ------------------------------ FORMULARIO ------------------------------ */}
-        <div className="no-print space-y-5">
+      <div className="grid lg:grid-cols-8 gap-6">
+        {/* El formulario ocupa 5 de 8: los campos del documento necesitan ancho,
+            y la vista previa ya tiene su propio control de zoom */}
+        <div className="no-print space-y-5 lg:col-span-5">
           <div className="bg-white border border-slate-200 shadow-sm rounded p-5 space-y-3">
             <h3 className="display-font text-lg font-bold uppercase text-[#0D2B5E]">Encabezado</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -6965,14 +6966,14 @@ function CotizacionMenor({ ufClp, directorioClientes = [] }) {
         </div>
 
         {/* ------------------------------ VISTA PREVIA ------------------------------ */}
-        <div className="lg:sticky lg:top-24 self-start">
+        <div className="lg:sticky lg:top-24 self-start lg:col-span-3">
           <div className="bg-white border border-slate-200 shadow-lg rounded overflow-hidden">
             <div className="no-print px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Vista previa del documento</span>
               <div className="flex items-center gap-1">
                 <button onClick={() => setZoomVista(z => Math.max(0.5, Math.round((z - 0.05) * 100) / 100))}
                   title="Reducir" className="w-6 h-6 rounded border border-slate-300 bg-white text-slate-600 hover:border-[#0D2B5E] hover:text-[#0D2B5E] leading-none">−</button>
-                <button onClick={() => setZoomVista(0.75)} title="Volver al tamaño por defecto"
+                <button onClick={() => setZoomVista(0.68)} title="Volver al tamaño por defecto"
                   className="px-2 h-6 rounded border border-slate-300 bg-white text-[10px] font-mono text-slate-600 hover:border-[#0D2B5E] hover:text-[#0D2B5E] tabular-nums">
                   {Math.round(zoomVista * 100)}%
                 </button>

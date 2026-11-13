@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.26.0 · BUILD 2026-11-13</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.27.0 · BUILD 2026-11-13</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.26.0";
+const APP_VERSION = "v6.27.0";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -1194,7 +1194,9 @@ function useFiltroPeriodo(data) {
   // La fecha de referencia es el último contacto de cada propuesta, que es el
   // dato comercial que maneja el equipo.
   const hoy = new Date();
-  const [modo, setModo]   = useState("todo");   // todo | anio | semestre | trimestre | mes | mes30 | personalizado
+  // El tablero abre en el semestre vigente: es el período con el que el equipo
+  // revisa la cartera. El resto de los períodos sigue disponible en el selector.
+  const [modo, setModo]   = useState("semestre");   // todo | anio | semestre | trimestre | mes | mes30 | personalizado
   const [anio, setAnio]   = useState(hoy.getFullYear());
   const [sem, setSem]     = useState(hoy.getMonth() < 6 ? 1 : 2);
   const [tri, setTri]     = useState(Math.floor(hoy.getMonth() / 3) + 1);
@@ -1204,10 +1206,11 @@ function useFiltroPeriodo(data) {
 
   // Años presentes en la cartera, para no ofrecer períodos vacíos
   const aniosDisponibles = useMemo(() => {
-    const set = new Set();
+    // El año en curso siempre se ofrece: el tablero abre en el semestre vigente
+    // y en enero la cartera puede no tener aún ninguna propuesta del año.
+    const set = new Set([hoy.getFullYear()]);
     (data || []).forEach(r => { const d = parseDate(r.ultimo_contacto); if (d) set.add(d.getFullYear()); });
-    const arr = [...set].sort((a, b) => b - a);
-    return arr.length ? arr : [hoy.getFullYear()];
+    return [...set].sort((a, b) => b - a);
   }, [data]);
 
   const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];

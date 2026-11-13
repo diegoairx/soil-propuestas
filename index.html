@@ -81,7 +81,7 @@
     <div class="loader-spin" style="margin:0 auto 16px;"></div>
     <div class="display-font" style="color:#0D2B5E; font-weight:900; font-size:24px; letter-spacing:0.05em;">CARGANDO SOIL</div>
     <div style="color:#64748b; font-size:12px; margin-top:8px;">Inicializando dashboard...</div>
-    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.22.0 · BUILD 2026-08-22</div>
+    <div style="color:#CC1414; font-size:11px; margin-top:12px; font-family:'Barlow Condensed',Impact,sans-serif; font-weight:700; letter-spacing:0.15em;">v6.22.2 · BUILD 2026-08-22</div>
   </div>
 </div>
 
@@ -212,7 +212,7 @@ function calcularStats(data) {
 // ============================================================================
 // APP VERSION — actualizar en cada deploy para verificación visual
 // ============================================================================
-const APP_VERSION = "v6.22.0";
+const APP_VERSION = "v6.22.2";
 const APP_BUILD   = "2026-08-22";
 
 // ============================================================================
@@ -1389,60 +1389,6 @@ function Dashboard({ stats: statsGlobal, ufClp, data }) {
           </div>
         </ChartCard>
 
-        <ChartCard title="Top clientes por n° de propuestas" iconName="users">
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={stats.clientes.slice(0, 8)} layout="vertical" margin={{ left: 0, right: 16, top: 4 }} barSize={16}>
-              <defs>
-                <linearGradient id="gVerdeH" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#0F9D6E" /><stop offset="100%" stopColor="#34C79A" />
-                </linearGradient>
-                <linearGradient id="gRojoH" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#CC1414" /><stop offset="100%" stopColor="#E8413B" />
-                </linearGradient>
-                <linearGradient id="gAmbarH" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#D97706" /><stop offset="100%" stopColor="#F3B64B" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke={GRAF.rejilla} horizontal={false} />
-              <XAxis type="number" {...EJE} allowDecimals={false} />
-              <YAxis dataKey="cliente" type="category" {...EJE} width={150}
-                tick={{ fill: "#475569", fontSize: 10 }}
-                tickFormatter={v => v.length > 22 ? v.slice(0, 20) + "…" : v} />
-              <Tooltip {...TOOLTIP} />
-              <Bar dataKey="adj"  stackId="a" name="Adjudicado" fill="url(#gVerdeH)" />
-              <Bar dataKey="rech" stackId="a" name="Rechazado"  fill="url(#gRojoH)" />
-              <Bar dataKey="pipe" stackId="a" name="Pipeline"   fill="url(#gAmbarH)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex gap-5 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.verde }} />Adjudicado</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.rojo }} />Rechazado</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.ambar }} />Pipeline</span>
-          </div>
-        </ChartCard>
-
-        <ChartCard title="Servicios más cotizados" iconName="layers">
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={stats.servicios.slice(0, 8)} margin={{ top: 20, right: 8, left: -12 }} barSize={30}>
-              <defs>
-                <linearGradient id="gRojo" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#E8413B" /><stop offset="100%" stopColor="#CC1414" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke={GRAF.rejilla} vertical={false} />
-              <XAxis dataKey="servicio" {...EJE} interval={0} angle={-22} textAnchor="end" height={76}
-                tick={{ fill: GRAF.tick, fontSize: 9.5 }}
-                tickFormatter={v => v.length > 18 ? v.slice(0, 16) + "…" : v} />
-              <YAxis {...EJE} allowDecimals={false} />
-              <Tooltip {...TOOLTIP} />
-              <Bar dataKey="total" name="Cotizaciones" fill="url(#gRojo)" radius={[5, 5, 0, 0]}>
-                {/* El valor sobre la barra evita rebotar contra el eje */}
-                <LabelList dataKey="total" position="top" style={{ fill: GRAF.azul, fontSize: 11, fontWeight: 700 }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
         <ChartCard title="Tendencia mensual de propuestas" iconName="trendup">
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={stats.tendencia} margin={{ top: 8, right: 8, left: -12 }}>
@@ -1468,6 +1414,68 @@ function Dashboard({ stats: statsGlobal, ufClp, data }) {
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
+        {/* Estos dos van a fila completa: los nombres de cliente y de servicio
+            no caben en media columna sin recortarse */}
+        <div className="lg:col-span-2">
+          <ChartCard title="Top clientes por n° de propuestas" iconName="users">
+            <ResponsiveContainer width="100%" height={330}>
+              <BarChart data={stats.clientes.slice(0, 8)} layout="vertical" margin={{ left: 0, right: 28, top: 4 }} barSize={18}>
+                <defs>
+                  <linearGradient id="gVerdeH" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#0F9D6E" /><stop offset="100%" stopColor="#34C79A" />
+                  </linearGradient>
+                  <linearGradient id="gRojoH" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#CC1414" /><stop offset="100%" stopColor="#E8413B" />
+                  </linearGradient>
+                  <linearGradient id="gAmbarH" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#D97706" /><stop offset="100%" stopColor="#F3B64B" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={GRAF.rejilla} horizontal={false} />
+                <XAxis type="number" {...EJE} allowDecimals={false} />
+                <YAxis dataKey="cliente" type="category" {...EJE} width={260} interval={0}
+                  tick={{ fill: "#334155", fontSize: 11 }}
+                  tickFormatter={v => v.length > 38 ? v.slice(0, 36) + "…" : v} />
+                <Tooltip {...TOOLTIP} />
+                <Bar dataKey="adj"  stackId="a" name="Adjudicado" fill="url(#gVerdeH)" />
+                <Bar dataKey="rech" stackId="a" name="Rechazado"  fill="url(#gRojoH)" />
+                <Bar dataKey="pipe" stackId="a" name="Pipeline"   fill="url(#gAmbarH)" radius={[0, 4, 4, 0]}>
+                  <LabelList dataKey="n" position="right" style={{ fill: GRAF.azul, fontSize: 11, fontWeight: 700 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex gap-5 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.verde }} />Adjudicado</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.rojo }} />Rechazado</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAF.ambar }} />Pipeline</span>
+            </div>
+          </ChartCard>
+        </div>
+
+        <div className="lg:col-span-2">
+          <ChartCard title="Servicios más cotizados" iconName="layers">
+            <ResponsiveContainer width="100%" height={330}>
+              {/* Horizontal: los nombres se leen de corrido, sin inclinar ni cortar */}
+              <BarChart data={stats.servicios.slice(0, 8)} layout="vertical" margin={{ left: 0, right: 34, top: 4 }} barSize={18}>
+                <defs>
+                  <linearGradient id="gRojoH2" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#CC1414" /><stop offset="100%" stopColor="#E8413B" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={GRAF.rejilla} horizontal={false} />
+                <XAxis type="number" {...EJE} allowDecimals={false} />
+                <YAxis dataKey="servicio" type="category" {...EJE} width={260} interval={0}
+                  tick={{ fill: "#334155", fontSize: 11 }}
+                  tickFormatter={v => v.length > 38 ? v.slice(0, 36) + "…" : v} />
+                <Tooltip {...TOOLTIP} />
+                <Bar dataKey="total" name="Cotizaciones" fill="url(#gRojoH2)" radius={[0, 5, 5, 0]}>
+                  <LabelList dataKey="total" position="right" style={{ fill: GRAF.azul, fontSize: 11, fontWeight: 700 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        </div>
+
       </div>
     </div>
   );
